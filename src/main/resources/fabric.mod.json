@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "mc-discord-chat",
+  "version": "${version}",
+  "name": "Minecraft Discord Chat",
+  "description": "\n\nBuilt-in Discord emojis thanks to AndrosDiscordEmojis. Built-in emojis are licensed under CC-BY-4.0.",
+  "authors": [
+    "Gaming32"
+  ],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/mc-discord-chat/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "client": [
+      "io.github.gaming32.mcdiscordchat.client.McDiscordChatClient"
+    ],
+    "main": [
+      "io.github.gaming32.mcdiscordchat.McDiscordChat"
+    ]
+  },
+  "mixins": [
+    "mc-discord-chat.mixins.json"
+  ],
+  "accessWidener": "mc-discord-chat.accessWidener",
+  "depends": {
+    "fabricloader": ">=0.14.11",
+    "fabric": "*",
+    "minecraft": "1.19.2"
+  }
+}

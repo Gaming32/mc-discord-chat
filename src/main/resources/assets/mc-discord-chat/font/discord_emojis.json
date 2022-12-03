@@ -1,0 +1,7 @@
+{
+  "providers": [
+    {
+      "type": "discord_emojis"
+    }
+  ]
+}
