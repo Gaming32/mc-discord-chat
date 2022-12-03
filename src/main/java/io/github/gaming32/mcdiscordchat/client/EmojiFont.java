@@ -32,6 +32,9 @@ public class EmojiFont implements Font {
         if (codePoint == McDiscordChat.UNKNOWN_EMOJI_CP) {
             return SpecialFontGlyph.MISSING;
         }
+        if (codePoint < McDiscordChat.PUA_FIRST || codePoint > McDiscordChat.PUA_LAST) {
+            return null;
+        }
         return glyphs.computeIfAbsent(codePoint, cp -> new Glyph() {
             @Override
             public float getAdvance() {
@@ -74,7 +77,7 @@ public class EmojiFont implements Font {
 
                     @Override
                     public float getOversample() {
-                        return 1f;
+                        return 64f / 7f;
                     }
                 });
             }

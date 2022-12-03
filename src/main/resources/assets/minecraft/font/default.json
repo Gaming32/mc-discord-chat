@@ -1,6 +1,9 @@
 {
 	"providers": [
 		{
+			"type": "discord_emojis"
+		},
+		{
 			"type": "bitmap",
 			"file": "minecraft:font/1f004.png",
 			"height": 7,
