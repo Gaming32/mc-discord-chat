@@ -53,6 +53,7 @@ public class McDiscordChat implements ModInitializer {
     public static final Identifier EMOJI_SYNC_CHAR = new Identifier(NAMESPACE, "emoji/sync_char");
     public static final Identifier EMOJI_SYNC_NAMES = new Identifier(NAMESPACE, "emoji/sync_names");
     public static final Identifier EMOJI_SYNC_NAME = new Identifier(NAMESPACE, "emoji/sync_name");
+    public static final Identifier CHAT_DISCORD_MESSAGE = new Identifier(NAMESPACE, "chat/discord_message");
 
     public static final Map<String, String> EMOJI_SHORTCODES = new HashMap<>();
 

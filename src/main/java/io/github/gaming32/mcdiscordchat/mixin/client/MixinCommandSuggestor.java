@@ -6,7 +6,6 @@ import io.github.gaming32.mcdiscordchat.client.McDiscordChatClient;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.CommandSuggestor;
 import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.command.CommandSource;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -51,10 +50,10 @@ public abstract class MixinCommandSuggestor {
         }
         ci.cancel();
         final SuggestionsBuilder builder = new SuggestionsBuilder(text, text.lastIndexOf(':') + 1);
-        final String toMatch = builder.getRemaining().toLowerCase(Locale.ROOT);
+        final String toMatch = builder.getRemainingLowerCase();
         McDiscordChatClient.EMOJI_NAMES
             .stream()
-            .filter(emoji -> CommandSource.matchesSubString(toMatch, emoji.toLowerCase(Locale.ROOT)))
+            .filter(emoji -> emoji.toLowerCase(Locale.ROOT).startsWith(toMatch))
             .forEach(emoji -> builder.suggest(emoji + ':'));
         pendingSuggestions = builder.buildFuture();
         pendingSuggestions.thenRun(() -> {
