@@ -8,6 +8,7 @@ version = project.mod_version
 group = project.maven_group
 
 repositories {
+    mavenCentral()
     maven {
         url = "https://maven.quiltmc.org/repository/release"
     }
@@ -24,6 +25,17 @@ dependencies {
 
     // Fabric API. This is technically optional, but you probably want it anyway.
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    modImplementation "net.fabricmc:fabric-language-kotlin:1.8.7+kotlin.1.7.22"
+
+    implementation(include "net.dv8tion:JDA:5.0.0-beta.1") {
+        exclude module: 'opus-java'
+    }
+    implementation include("club.minnced:discord-webhooks:0.8.2")
+    include "com.squareup.okhttp3:okhttp:4.10.0"
+    include "com.squareup.okio:okio:3.2.0"
+    include "org.apache.commons:commons-collections4:4.4"
+
+    implementation include("org.quiltmc:quilt-json5:1.0.2")
 }
 
 loom {

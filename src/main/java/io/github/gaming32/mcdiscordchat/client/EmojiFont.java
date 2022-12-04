@@ -58,16 +58,8 @@ public class EmojiFont implements Font {
 
                     @Override
                     public void upload(int offsetX, int offsetY) {
-                        if (image == null) {
-                            final long emojiId = McDiscordChatClient.EMOJI_IDS.get(cp);
-                            try (InputStream is = new URL("https://cdn.discordapp.com/emojis/" + emojiId + ".png?size=64").openStream()) {
-                                image = NativeImage.read(is);
-                            } catch (IOException e) {
-                                McDiscordChat.LOGGER.error("Couldn't download emoji " + emojiId, e);
-                                return;
-                            }
-                        }
-                        image.upload(0, offsetX, offsetY, 0, 0, 64, 64, false, false);
+                        if (getImage() == null) return;
+                        image.upload(0, offsetX, offsetY, 0, 0, image.getWidth(), image.getHeight(), false, false);
                     }
 
                     @Override
@@ -77,7 +69,19 @@ public class EmojiFont implements Font {
 
                     @Override
                     public float getOversample() {
-                        return 64f / 7f;
+                        return Math.max(getImage().getWidth(), image.getHeight()) / 7f;
+                    }
+
+                    private NativeImage getImage() {
+                        if (image == null) {
+                            final long emojiId = McDiscordChatClient.EMOJI_IDS.get(cp);
+                            try (InputStream is = new URL("https://cdn.discordapp.com/emojis/" + emojiId + ".png?size=64").openStream()) {
+                                image = NativeImage.read(is);
+                            } catch (IOException e) {
+                                McDiscordChat.LOGGER.error("Couldn't download emoji " + emojiId, e);
+                            }
+                        }
+                        return image;
                     }
                 });
             }
