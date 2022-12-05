@@ -125,17 +125,20 @@ public class McDiscordChat implements ModInitializer {
                         .setContent(internalToDiscord(text))
                         .setUsername(sender.getDisplayName().getString())
                         .setAvatarUrl("https://crafatar.com/renders/head/" + sender.getUuid() + "?overlay=true")
-                        .setAllowedMentions(
-                            AllowedMentions.none()
-                                .withParseUsers(true)
-                                .withRoles(
-                                    jda.getRoleCache()
-                                        .stream()
-                                        .filter(Role::isMentionable)
-                                        .map(Role::getId)
-                                        .collect(Collectors.toList())
-                                )
-                        )
+                        .setAllowedMentions(getAllowedMentions())
+                        .build()
+                );
+            }
+        });
+
+        ServerMessageEvents.GAME_MESSAGE.register((server, message, overlay) -> {
+            if (overlay) return;
+            if (chatWebhook != null) {
+                assert jda != null;
+                chatWebhook.send(
+                    new WebhookMessageBuilder()
+                        .setContent(internalToDiscord(message))
+                        .setAllowedMentions(getAllowedMentions())
                         .build()
                 );
             }
@@ -164,16 +167,6 @@ public class McDiscordChat implements ModInitializer {
                 }
             }
             sender.sendPacket(EMOJI_SYNC_NAMES, buf);
-
-            if (chatWebhook != null) {
-                chatWebhook.send(handler.player.getDisplayName().getString() + " joined the game.");
-            }
-        });
-
-        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
-            if (chatWebhook != null) {
-                chatWebhook.send(handler.player.getDisplayName().getString() + " left the game.");
-            }
         });
 
         ServerLifecycleEvents.SERVER_STARTING.register(server -> {
@@ -252,6 +245,19 @@ public class McDiscordChat implements ModInitializer {
         Registry.register(Registry.SOUND_EVENT, PING_SOUND_ID, PING_SOUND_EVENT);
 
         LOGGER.info("Initialized " + MOD_ID);
+    }
+
+    private static AllowedMentions getAllowedMentions() {
+        assert jda != null;
+        return AllowedMentions.none()
+            .withParseUsers(true)
+            .withRoles(
+                jda.getRoleCache()
+                    .stream()
+                    .filter(Role::isMentionable)
+                    .map(Role::getId)
+                    .collect(Collectors.toList())
+            );
     }
 
     private static String internalToDiscord(Text internal) {
