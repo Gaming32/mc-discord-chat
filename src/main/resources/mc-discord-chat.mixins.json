@@ -7,6 +7,7 @@
   ],
   "client": [
     "client.MixinCommandSuggestor",
+    "client.MixinCommandSuggestor$MixinSuggestionWindow",
     "client.MixinFontType"
   ],
   "injectors": {

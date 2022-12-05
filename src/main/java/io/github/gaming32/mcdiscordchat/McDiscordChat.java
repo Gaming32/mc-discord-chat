@@ -141,7 +141,15 @@ public class McDiscordChat implements ModInitializer {
             sender.sendPacket(EMOJI_SYNC_CHARS, buf);
 
             buf = PacketByteBufs.create();
-            buf.writeCollection(EMOJI_NAMES.keySet(), PacketByteBuf::writeString);
+            buf.writeVarInt(EMOJI_NAMES.size());
+            for (final var entry : EMOJI_NAMES.entrySet()) {
+                buf.writeString(entry.getKey());
+                if (entry.getValue() == BUILTIN_EMOJI_MARKER) {
+                    buf.writeVarInt(EMOJI_SHORTCODES.get(entry.getKey()).codePointAt(0));
+                } else {
+                    buf.writeVarInt(EMOJI_CHARS.get(entry.getValue().getLongKey()));
+                }
+            }
             sender.sendPacket(EMOJI_SYNC_NAMES, buf);
 
             if (chatWebhook != null) {
@@ -162,6 +170,7 @@ public class McDiscordChat implements ModInitializer {
             for (final Object2LongMap.Entry<String> extraCustom : CONFIG.getExtraCustomEmojis().object2LongEntrySet()) {
                 // Extra custom emojis cannot be animated currently.
                 addEmojiName(extraCustom.getKey(), extraCustom.getLongValue(), false);
+                getEmojiCP(extraCustom.getKey(), extraCustom.getLongValue(), false);
             }
 
             if (!CONFIG.getBotToken().isEmpty()) {
@@ -179,6 +188,7 @@ public class McDiscordChat implements ModInitializer {
                     LOGGER.info("Discord bot started!");
                     for (final RichCustomEmoji emoji : jda.getEmojis()) {
                         addEmojiName(emoji.getName(), emoji.getIdLong(), emoji.isAnimated());
+                        getEmojiCP(emoji.getName(), emoji.getIdLong(), false);
                     }
                     if (CONFIG.getWebhookUrl().isEmpty()) {
                         if (CONFIG.getMessageChannel() != 0L) {
@@ -297,7 +307,7 @@ public class McDiscordChat implements ModInitializer {
                     }
                     if (emoji != null) {
                         final String longNameStart = emoji.getBooleanValue() ? "a:" : ":";
-                        result.appendCodePoint(getEmojiCP(longNameStart + emojiName + ':', emoji.getLongKey()));
+                        result.appendCodePoint(getEmojiCP(longNameStart + emojiName + ':', emoji.getLongKey(), true));
                         i = nextColon + 1;
                         continue;
                     }
@@ -321,7 +331,7 @@ public class McDiscordChat implements ModInitializer {
                         if (lastGt != -1) {
                             try {
                                 final long emojiId = Long.parseLong(text.substring(nextColon + 1, lastGt));
-                                result.appendCodePoint(getEmojiCP(text.substring(startI + 1, nextColon + 1), emojiId));
+                                result.appendCodePoint(getEmojiCP(text.substring(startI + 1, nextColon + 1), emojiId, true));
                                 i = lastGt + 1;
                                 continue;
                             } catch (NumberFormatException e) {
@@ -341,7 +351,7 @@ public class McDiscordChat implements ModInitializer {
         return result.toString();
     }
 
-    public static int getEmojiCP(String emojiName, long emojiId) {
+    public static int getEmojiCP(String emojiName, long emojiId, boolean syncWithClients) {
         return EMOJI_CHARS.computeIfAbsent(emojiId, key -> {
             final int emojiCP = nextEmojiCP++;
             if (emojiCP > PUA_LAST) {
@@ -349,9 +359,11 @@ public class McDiscordChat implements ModInitializer {
                 return PUA_FIRST;
             }
             EMOJI_CHARS_REVERSE.put(emojiCP, new AbstractObject2LongMap.BasicEntry<>(emojiName, emojiId));
-            final PacketByteBuf buf = PacketByteBufs.create();
-            writeEmoji(buf, emojiId, emojiCP);
-            currentServer.getPlayerManager().sendToAll(ServerPlayNetworking.createS2CPacket(EMOJI_SYNC_CHAR, buf));
+            if (syncWithClients) {
+                final PacketByteBuf buf = PacketByteBufs.create();
+                writeEmoji(buf, emojiId, emojiCP);
+                currentServer.getPlayerManager().sendToAll(ServerPlayNetworking.createS2CPacket(EMOJI_SYNC_CHAR, buf));
+            }
             return emojiCP;
         });
     }

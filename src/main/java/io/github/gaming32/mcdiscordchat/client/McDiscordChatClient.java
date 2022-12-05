@@ -11,13 +11,13 @@ import net.minecraft.client.gui.hud.ChatMessageTag;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.text.Text;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.HashMap;
+import java.util.Map;
 
 @Environment(EnvType.CLIENT)
 public class McDiscordChatClient implements ClientModInitializer {
     public static final Int2LongMap EMOJI_IDS = new Int2LongOpenHashMap();
-    public static final Set<String> EMOJI_NAMES = new HashSet<>();
+    public static final Map<String, String> EMOJI_NAMES = new HashMap<>();
 
     public static final ChatMessageTag DISCORD_TAG = new ChatMessageTag(
         0x7289da, null, Text.translatable("chat.tag.discord"), "Discord"
@@ -63,6 +63,6 @@ public class McDiscordChatClient implements ClientModInitializer {
     }
 
     private static void registerEmojiName(PacketByteBuf buf) {
-        EMOJI_NAMES.add(buf.readString());
+        EMOJI_NAMES.put(buf.readString(), Character.toString(buf.readVarInt()));
     }
 }
