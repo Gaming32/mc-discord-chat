@@ -39,7 +39,10 @@ public class DiscordChatEventListener extends ListenerAdapter {
         if (!event.getMessage().getEmbeds().isEmpty() || !event.getMessage().getAttachments().isEmpty()) {
             text.append(Text.literal("[\u2709] ").styled(style -> style.withColor(0xddd605)));
         }
-        text.append(McDiscordChat.parseEmojis(event.getMessage().getContentRaw()));
+
+        final Text messageText = McDiscordChat.parseEmojis(event.getMessage().getContentRaw());
+        text.append(messageText);
+        McDiscordChat.executePings(messageText);
 
         final MutableText vanillaText = Text.empty();
         vanillaText.append(Text.literal("[").styled(style -> style.withColor(0x2c2f33).withBold(true)));

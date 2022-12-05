@@ -33,7 +33,9 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvent;
+import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Style;
 import net.minecraft.text.Text;
@@ -51,7 +53,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -112,13 +116,13 @@ public class McDiscordChat implements ModInitializer {
         }
 
         ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> {
+            final Text text = message.unsignedContent().orElseGet(() -> message.signedBody().content().decorated());
+            executePings(text);
             if (chatWebhook != null) {
                 assert jda != null;
                 chatWebhook.send(
                     new WebhookMessageBuilder()
-                        .setContent(internalToDiscord(
-                            message.unsignedContent().orElseGet(() -> message.signedBody().content().decorated())
-                        ))
+                        .setContent(internalToDiscord(text))
                         .setUsername(sender.getDisplayName().getString())
                         .setAvatarUrl("https://crafatar.com/renders/head/" + sender.getUuid() + "?overlay=true")
                         .setAllowedMentions(
@@ -273,11 +277,12 @@ public class McDiscordChat implements ModInitializer {
 
             @Override
             protected boolean visitTranslatable(Text text, TranslatableComponent component) {
-                if (component.getKey().equals("chat.discord.ping")) {
+                if (component.getKey().equals("chat.ping.discord")) {
                     result.append("<@").append(component.getArgs()[1]).append('>');
-                    return false;
+                } else {
+                    result.append(text.getString());
                 }
-                return true;
+                return false;
             }
         });
         return result.toString();
@@ -309,6 +314,32 @@ public class McDiscordChat implements ModInitializer {
         } catch (IOException e) {
             LOGGER.error("Failed to write Discord config", e);
         }
+    }
+
+    public static void executePings(Text message) {
+        for (final ServerPlayerEntity player : collectPings(message)) {
+            player.playSound(
+                ServerPlayNetworking.canSend(player, CHAT_DISCORD_MESSAGE)
+                    ? PING_SOUND_EVENT
+                    : SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP,
+                SoundCategory.AMBIENT, 0.5f, 1.5f
+            );
+        }
+    }
+
+    public static Set<ServerPlayerEntity> collectPings(Text message) {
+        final Set<ServerPlayerEntity> pinged = new HashSet<>();
+        TextVisitor.walk(message, new TextVisitor() {
+            @Override
+            protected boolean visitTranslatable(Text text, TranslatableComponent component) {
+                if (component.getKey().equals("chat.ping.minecraft")) {
+                    pinged.add(currentServer.getPlayerManager().getPlayer(component.getArgs()[1].toString()));
+                    return false;
+                }
+                return true;
+            }
+        });
+        return pinged;
     }
 
     public static Text parseEmojis(String text) {
@@ -384,12 +415,6 @@ public class McDiscordChat implements ModInitializer {
                 String username = text.substring(i + 1, spaceIndex);
                 final ServerPlayerEntity player = currentServer.getPlayerManager().getPlayer(username);
                 if (player != null) {
-//                    player.playSound(
-//                        ServerPlayNetworking.canSend(player, CHAT_DISCORD_MESSAGE)
-//                            ? PING_SOUND_EVENT
-//                            : SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP,
-//                        SoundCategory.AMBIENT, 1f, 1f
-//                    );
                     result.append(current.toString());
                     current.setLength(0);
                     final Text displayName = player.getDisplayName();
@@ -397,8 +422,13 @@ public class McDiscordChat implements ModInitializer {
                     if (style.getColor() == null) {
                         style = style.withColor(0x7d92dd);
                     }
-                    result.append(Text.literal("@").setStyle(style));
-                    result.append(displayName.copy().setStyle(style));
+                    result.append(
+                        Text.translatable(
+                            "chat.ping.minecraft",
+                            displayName,
+                            player.getEntityName()
+                        ).setStyle(style)
+                    );
                     i = spaceIndex;
                     continue;
                 }
@@ -424,7 +454,7 @@ public class McDiscordChat implements ModInitializer {
                             current.setLength(0);
                             result.append(
                                 Text.translatable(
-                                    "chat.discord.ping",
+                                    "chat.ping.discord",
                                     member == null ? user.getName() : member.getEffectiveName(),
                                     user.getId()
                                 ).styled(style -> style.withColor(
