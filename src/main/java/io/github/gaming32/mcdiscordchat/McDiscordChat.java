@@ -4,6 +4,7 @@ import club.minnced.discord.webhook.external.JDAWebhookClient;
 import club.minnced.discord.webhook.send.AllowedMentions;
 import club.minnced.discord.webhook.send.WebhookMessageBuilder;
 import com.google.gson.stream.JsonReader;
+import io.github.gaming32.mcdiscordchat.util.TextVisitor;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.AbstractLong2BooleanMap;
@@ -14,7 +15,10 @@ import it.unimi.dsi.fastutil.objects.AbstractObject2LongMap;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
+import net.dv8tion.jda.api.entities.Guild;
+import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Role;
+import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.emoji.RichCustomEmoji;
 import net.dv8tion.jda.api.requests.GatewayIntent;
@@ -28,8 +32,15 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.sound.SoundEvent;
+import net.minecraft.text.MutableText;
+import net.minecraft.text.Style;
 import net.minecraft.text.Text;
+import net.minecraft.text.component.LiteralComponent;
+import net.minecraft.text.component.TranslatableComponent;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.registry.Registry;
 import org.jetbrains.annotations.Nullable;
 import org.quiltmc.json5.JsonWriter;
 import org.slf4j.Logger;
@@ -48,12 +59,14 @@ public class McDiscordChat implements ModInitializer {
     public static final String MOD_ID = "mc-discord-chat";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
-    public static final String NAMESPACE = "discordchat";
-    public static final Identifier EMOJI_SYNC_CHARS = new Identifier(NAMESPACE, "emoji/sync_chars");
-    public static final Identifier EMOJI_SYNC_CHAR = new Identifier(NAMESPACE, "emoji/sync_char");
-    public static final Identifier EMOJI_SYNC_NAMES = new Identifier(NAMESPACE, "emoji/sync_names");
-    public static final Identifier EMOJI_SYNC_NAME = new Identifier(NAMESPACE, "emoji/sync_name");
-    public static final Identifier CHAT_DISCORD_MESSAGE = new Identifier(NAMESPACE, "chat/discord_message");
+    public static final Identifier EMOJI_SYNC_CHARS = new Identifier(MOD_ID, "emoji/sync_chars");
+    public static final Identifier EMOJI_SYNC_CHAR = new Identifier(MOD_ID, "emoji/sync_char");
+    public static final Identifier EMOJI_SYNC_NAMES = new Identifier(MOD_ID, "emoji/sync_names");
+    public static final Identifier EMOJI_SYNC_NAME = new Identifier(MOD_ID, "emoji/sync_name");
+    public static final Identifier CHAT_DISCORD_MESSAGE = new Identifier(MOD_ID, "chat/discord_message");
+
+    public static final Identifier PING_SOUND_ID = new Identifier(MOD_ID, "ping");
+    public static final SoundEvent PING_SOUND_EVENT = new SoundEvent(PING_SOUND_ID);
 
     public static final Map<String, String> EMOJI_SHORTCODES = new HashMap<>();
 
@@ -103,10 +116,8 @@ public class McDiscordChat implements ModInitializer {
                 assert jda != null;
                 chatWebhook.send(
                     new WebhookMessageBuilder()
-                        .setContent(unicodeToDiscord(
-                            message.unsignedContent()
-                                .orElseGet(() -> message.signedBody().content().decorated())
-                                .getString()
+                        .setContent(internalToDiscord(
+                            message.unsignedContent().orElseGet(() -> message.signedBody().content().decorated())
                         ))
                         .setUsername(sender.getDisplayName().getString())
                         .setAvatarUrl("https://crafatar.com/renders/head/" + sender.getUuid() + "?overlay=true")
@@ -127,10 +138,8 @@ public class McDiscordChat implements ModInitializer {
         });
 
         ServerMessageDecoratorEvent.EVENT.register((serverPlayerEntity, text) ->
-            CompletableFuture.completedFuture(Text.literal(
-                parseEmojis(text.getString())
-            )
-        ));
+            CompletableFuture.completedFuture(parseEmojis(text.getString()))
+        );
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             PacketByteBuf buf = PacketByteBufs.create();
@@ -177,7 +186,7 @@ public class McDiscordChat implements ModInitializer {
                 LOGGER.info("Starting Discord bot...");
                 try {
                     jda = JDABuilder.createDefault(CONFIG.getBotToken())
-                        .enableIntents(GatewayIntent.MESSAGE_CONTENT)
+                        .enableIntents(GatewayIntent.MESSAGE_CONTENT, GatewayIntent.GUILD_MEMBERS)
                         .addEventListeners(new DiscordChatEventListener())
                         .build().awaitReady();
                 } catch (Exception e) {
@@ -186,6 +195,11 @@ public class McDiscordChat implements ModInitializer {
                 }
                 if (jda != null) {
                     LOGGER.info("Discord bot started!");
+                    for (final Guild guild : jda.getGuilds()) {
+                        guild.loadMembers().onSuccess(members ->
+                            LOGGER.info("Loaded {} members from guild {}.", members.size(), guild.getName())
+                        );
+                    }
                     for (final RichCustomEmoji emoji : jda.getEmojis()) {
                         addEmojiName(emoji.getName(), emoji.getIdLong(), emoji.isAnimated());
                         getEmojiCP(emoji.getName(), emoji.getIdLong(), false);
@@ -231,23 +245,40 @@ public class McDiscordChat implements ModInitializer {
 
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> currentServer = null);
 
+        Registry.register(Registry.SOUND_EVENT, PING_SOUND_ID, PING_SOUND_EVENT);
+
         LOGGER.info("Initialized " + MOD_ID);
     }
 
-    private static String unicodeToDiscord(String unicode) {
+    private static String internalToDiscord(Text internal) {
         final StringBuilder result = new StringBuilder();
-        unicode.codePoints().forEach(cp -> {
-            if (cp >= PUA_FIRST && cp <= PUA_LAST) {
-                final var discordInfo = EMOJI_CHARS_REVERSE.get(cp);
-                if (discordInfo != null) {
-                    result.append('<')
-                        .append(discordInfo.getKey())
-                        .append(discordInfo.getLongValue())
-                        .append('>');
-                    return;
-                }
+        TextVisitor.walk(internal, new TextVisitor() {
+            @Override
+            protected boolean visitLiteral(Text text, LiteralComponent component) {
+                component.literal().codePoints().forEach(cp -> {
+                    if (cp >= PUA_FIRST && cp <= PUA_LAST) {
+                        final var discordInfo = EMOJI_CHARS_REVERSE.get(cp);
+                        if (discordInfo != null) {
+                            result.append('<')
+                                .append(discordInfo.getKey())
+                                .append(discordInfo.getLongValue())
+                                .append('>');
+                            return;
+                        }
+                    }
+                    result.appendCodePoint(cp);
+                });
+                return true;
             }
-            result.appendCodePoint(cp);
+
+            @Override
+            protected boolean visitTranslatable(Text text, TranslatableComponent component) {
+                if (component.getKey().equals("chat.discord.ping")) {
+                    result.append("<@").append(component.getArgs()[1]).append('>');
+                    return false;
+                }
+                return true;
+            }
         });
         return result.toString();
     }
@@ -280,8 +311,9 @@ public class McDiscordChat implements ModInitializer {
         }
     }
 
-    public static String parseEmojis(String text) {
-        final StringBuilder result = new StringBuilder(text.length());
+    public static Text parseEmojis(String text) {
+        final MutableText result = Text.empty();
+        final StringBuilder current = new StringBuilder(text.length());
         int i = 0;
         while (i < text.length()) {
             final char c = text.charAt(i);
@@ -291,7 +323,7 @@ public class McDiscordChat implements ModInitializer {
                     continue;
                 }
                 if (i < text.length() - 1 && text.charAt(i + 1) == '<') {
-                    result.append('<');
+                    current.append('<');
                     i += 2;
                     continue;
                 }
@@ -301,13 +333,13 @@ public class McDiscordChat implements ModInitializer {
                     final String emojiName = text.substring(i + 1, nextColon);
                     final Long2BooleanMap.Entry emoji = EMOJI_NAMES.get(emojiName);
                     if (emoji == BUILTIN_EMOJI_MARKER) {
-                        result.append(EMOJI_SHORTCODES.get(emojiName));
+                        current.append(EMOJI_SHORTCODES.get(emojiName));
                         i = nextColon + 1;
                         continue;
                     }
                     if (emoji != null) {
                         final String longNameStart = emoji.getBooleanValue() ? "a:" : ":";
-                        result.appendCodePoint(getEmojiCP(longNameStart + emojiName + ':', emoji.getLongKey(), true));
+                        current.appendCodePoint(getEmojiCP(longNameStart + emojiName + ':', emoji.getLongKey(), true));
                         i = nextColon + 1;
                         continue;
                     }
@@ -331,7 +363,7 @@ public class McDiscordChat implements ModInitializer {
                         if (lastGt != -1) {
                             try {
                                 final long emojiId = Long.parseLong(text.substring(nextColon + 1, lastGt));
-                                result.appendCodePoint(getEmojiCP(text.substring(startI + 1, nextColon + 1), emojiId, true));
+                                current.appendCodePoint(getEmojiCP(text.substring(startI + 1, nextColon + 1), emojiId, true));
                                 i = lastGt + 1;
                                 continue;
                             } catch (NumberFormatException e) {
@@ -344,11 +376,73 @@ public class McDiscordChat implements ModInitializer {
                         i = startI;
                     }
                 }
+            } else if (c == '@') {
+                int spaceIndex = text.indexOf(' ', i + 1);
+                if (spaceIndex == -1) {
+                    spaceIndex = text.length();
+                }
+                String username = text.substring(i + 1, spaceIndex);
+                final ServerPlayerEntity player = currentServer.getPlayerManager().getPlayer(username);
+                if (player != null) {
+//                    player.playSound(
+//                        ServerPlayNetworking.canSend(player, CHAT_DISCORD_MESSAGE)
+//                            ? PING_SOUND_EVENT
+//                            : SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP,
+//                        SoundCategory.AMBIENT, 1f, 1f
+//                    );
+                    result.append(current.toString());
+                    current.setLength(0);
+                    final Text displayName = player.getDisplayName();
+                    Style style = displayName.getStyle();
+                    if (style.getColor() == null) {
+                        style = style.withColor(0x7d92dd);
+                    }
+                    result.append(Text.literal("@").setStyle(style));
+                    result.append(displayName.copy().setStyle(style));
+                    i = spaceIndex;
+                    continue;
+                }
+                if (jda != null) {
+                    final int poundIndex = text.indexOf('#', i + 1);
+                    if (poundIndex != -1 && poundIndex < text.length() - 4) {
+                        username = text.substring(i + 1, poundIndex + 5);
+                        User user;
+                        try {
+                            user = jda.getUserByTag(username);
+                        } catch (IllegalArgumentException e) {
+                            user = null;
+                        }
+                        if (user != null) {
+                            final Member member;
+                            final TextChannel channel = jda.getTextChannelById(CONFIG.getMessageChannel());
+                            if (channel != null) {
+                                member = channel.getGuild().getMember(user);
+                            } else {
+                                member = null;
+                            }
+                            result.append(current.toString());
+                            current.setLength(0);
+                            result.append(
+                                Text.translatable(
+                                    "chat.discord.ping",
+                                    member == null ? user.getName() : member.getEffectiveName(),
+                                    user.getId()
+                                ).styled(style -> style.withColor(
+                                    member == null || member.getColorRaw() == Role.DEFAULT_COLOR_RAW
+                                        ? 0x7d92dd : member.getColorRaw()
+                                ))
+                            );
+                            i = poundIndex + 5;
+                            continue;
+                        }
+                    }
+                }
             }
-            result.append(c);
+            current.append(c);
             i++;
         }
-        return result.toString();
+        result.append(current.toString());
+        return result;
     }
 
     public static int getEmojiCP(String emojiName, long emojiId, boolean syncWithClients) {
