@@ -40,7 +40,7 @@ public class DiscordChatEventListener extends ListenerAdapter {
             text.append(Text.literal("[\u2709] ").styled(style -> style.withColor(0xddd605)));
         }
 
-        final Text messageText = McDiscordChat.parseEmojis(event.getMessage().getContentRaw());
+        final Text messageText = McDiscordChat.parseEmojis(indentSubsequentLines(event.getMessage().getContentRaw()));
         text.append(messageText);
         McDiscordChat.executePings(messageText);
 
@@ -61,5 +61,9 @@ public class DiscordChatEventListener extends ListenerAdapter {
                 player.sendSystemMessage(vanillaText);
             }
         }
+    }
+
+    private static String indentSubsequentLines(String text) {
+        return text.indent(3).trim();
     }
 }
