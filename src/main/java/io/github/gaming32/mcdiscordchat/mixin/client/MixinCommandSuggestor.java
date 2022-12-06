@@ -1,11 +1,10 @@
 package io.github.gaming32.mcdiscordchat.mixin.client;
 
-import com.mojang.brigadier.suggestion.Suggestion;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import io.github.gaming32.mcdiscordchat.McDiscordChat;
 import io.github.gaming32.mcdiscordchat.client.McDiscordChatClient;
-import io.github.gaming32.mcdiscordchat.util.ColorUtil;
+import io.github.gaming32.mcdiscordchat.client.SuggestorUtil;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.minecraft.client.MinecraftClient;
@@ -15,7 +14,6 @@ import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.text.Text;
-import net.minecraft.text.TextColor;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -100,11 +98,15 @@ public abstract class MixinCommandSuggestor {
         method = "showSuggestions",
         at = @At(
             value = "INVOKE",
-            target = "Lcom/mojang/brigadier/suggestion/Suggestion;getText()Ljava/lang/String;"
+            target = "Lnet/minecraft/client/font/TextRenderer;getWidth(Ljava/lang/String;)I"
         )
     )
-    private String getSuggestionText(Suggestion instance) {
-        return instance.getText(); // TODO: implement like below
+    private int getSuggestionText(TextRenderer instance, String text) {
+        final Object useText = SuggestorUtil.getSuggestionText(textField.getText(), text, 0xffffff);
+        if (useText instanceof String) {
+            return instance.getWidth((String)useText);
+        }
+        return instance.getWidth((Text)useText);
     }
 
     @Mixin(CommandSuggestor.SuggestionWindow.class)
@@ -119,24 +121,11 @@ public abstract class MixinCommandSuggestor {
             )
         )
         private int drawCustomSuggestion(TextRenderer instance, MatrixStack matrices, String text, float x, float y, int color) {
-            if (typedText.startsWith("/") || text.isEmpty()) {
-                return instance.drawWithShadow(matrices, text, x, y, color);
+            final Object useText = SuggestorUtil.getSuggestionText(typedText, text, color);
+            if (useText instanceof String) {
+                return instance.drawWithShadow(matrices, (String)useText, x, y, color);
             }
-            if (text.endsWith(":")) {
-                final String cutText = text.substring(0, text.length() - 1);
-                final String emoji = McDiscordChatClient.EMOJI_NAMES.get(cutText);
-                if (emoji != null) {
-                    return instance.drawWithShadow(matrices, emoji + ' ' + cutText, x, y, color);
-                }
-            }
-            Text pingText = McDiscordChatClient.pingSuggestionsDisplays.get(text);
-            if (pingText != null) {
-                if (!ColorUtil.isGrayscale(color)) {
-                    pingText = pingText.copy().styled(style -> style.withColor((TextColor)null));
-                }
-                return instance.drawWithShadow(matrices, pingText, x, y, color);
-            }
-            return instance.drawWithShadow(matrices, text, x, y, color);
+            return instance.drawWithShadow(matrices, (Text)useText, x, y, color);
         }
     }
 }
