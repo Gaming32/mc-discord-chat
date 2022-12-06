@@ -4,6 +4,8 @@ import club.minnced.discord.webhook.external.JDAWebhookClient;
 import club.minnced.discord.webhook.send.AllowedMentions;
 import club.minnced.discord.webhook.send.WebhookMessageBuilder;
 import com.google.gson.stream.JsonReader;
+import com.mojang.brigadier.suggestion.Suggestions;
+import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import io.github.gaming32.mcdiscordchat.util.TextVisitor;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -19,6 +21,7 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.entities.User;
+import net.dv8tion.jda.api.entities.channel.Channel;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.emoji.RichCustomEmoji;
 import net.dv8tion.jda.api.requests.GatewayIntent;
@@ -36,9 +39,7 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvent;
 import net.minecraft.sound.SoundEvents;
-import net.minecraft.text.MutableText;
-import net.minecraft.text.Style;
-import net.minecraft.text.Text;
+import net.minecraft.text.*;
 import net.minecraft.text.component.LiteralComponent;
 import net.minecraft.text.component.TranslatableComponent;
 import net.minecraft.util.Identifier;
@@ -65,6 +66,7 @@ public class McDiscordChat implements ModInitializer {
     public static final Identifier EMOJI_SYNC_NAMES = new Identifier(MOD_ID, "emoji/sync_names");
     public static final Identifier EMOJI_SYNC_NAME = new Identifier(MOD_ID, "emoji/sync_name");
     public static final Identifier CHAT_DISCORD_MESSAGE = new Identifier(MOD_ID, "chat/discord_message");
+    public static final Identifier CHAT_PING_AUTOCOMPLETE = new Identifier(MOD_ID, "chat/ping_autocomplete");
 
     public static final Identifier PING_SOUND_ID = new Identifier(MOD_ID, "ping");
     public static final SoundEvent PING_SOUND_EVENT = new SoundEvent(PING_SOUND_ID);
@@ -179,9 +181,13 @@ public class McDiscordChat implements ModInitializer {
             if (!CONFIG.getBotToken().isEmpty()) {
                 LOGGER.info("Starting Discord bot...");
                 try {
-                    jda = JDABuilder.createDefault(CONFIG.getBotToken())
-                        .enableIntents(GatewayIntent.MESSAGE_CONTENT, GatewayIntent.GUILD_MEMBERS)
-                        .addEventListeners(new DiscordChatEventListener())
+                    jda = JDABuilder.create(
+                        CONFIG.getBotToken(),
+                        GatewayIntent.getIntents(GatewayIntent.DEFAULT | GatewayIntent.getRaw(
+                            GatewayIntent.MESSAGE_CONTENT,
+                            GatewayIntent.GUILD_MEMBERS
+                        ))
+                    ).addEventListeners(new DiscordChatEventListener())
                         .build().awaitReady();
                 } catch (Exception e) {
                     LOGGER.error("Bot failed to start!", e);
@@ -189,11 +195,6 @@ public class McDiscordChat implements ModInitializer {
                 }
                 if (jda != null) {
                     LOGGER.info("Discord bot started!");
-                    for (final Guild guild : jda.getGuilds()) {
-                        guild.loadMembers().onSuccess(members ->
-                            LOGGER.info("Loaded {} members from guild {}.", members.size(), guild.getName())
-                        );
-                    }
                     for (final RichCustomEmoji emoji : jda.getEmojis()) {
                         addEmojiName(emoji.getName(), emoji.getIdLong(), emoji.isAnimated());
                         getEmojiCP(emoji.getName(), emoji.getIdLong(), false);
@@ -239,6 +240,82 @@ public class McDiscordChat implements ModInitializer {
 
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> currentServer = null);
 
+        ServerPlayNetworking.registerGlobalReceiver(CHAT_PING_AUTOCOMPLETE, (server, player, handler, buf, responseSender) -> {
+            final int transactionId = buf.readVarInt();
+            final String partialMessage = buf.readString();
+
+            final int lastAt = partialMessage.lastIndexOf('@');
+
+            final SuggestionsBuilder suggestionsBuilder = new SuggestionsBuilder(partialMessage, lastAt + 1);
+            final Map<String, Text> results = new HashMap<>();
+
+            if (lastAt == 0 || partialMessage.charAt(lastAt - 1) != '<') {
+                final String username = partialMessage.substring(lastAt + 1).toLowerCase(Locale.ROOT);
+                final int lastSpace = partialMessage.lastIndexOf(' ');
+                if (lastSpace < lastAt) {
+                    for (final ServerPlayerEntity otherPlayer : server.getPlayerManager().getPlayerList()) {
+                        if (otherPlayer.getEntityName().toLowerCase(Locale.ROOT).startsWith(username)) {
+                            if (results.putIfAbsent(otherPlayer.getEntityName(), otherPlayer.getDisplayName()) == null) {
+                                suggestionsBuilder.suggest(otherPlayer.getEntityName());
+                            }
+                        }
+                    }
+                }
+
+                if (jda != null) {
+                    final TextChannel channel = jda.getTextChannelById(CONFIG.getMessageChannel());
+                    if (channel != null) {
+                        for (final Member member : channel.getGuild().getMemberCache()) {
+                            final String tag = member.getUser().getAsTag();
+                            final String name = member.getEffectiveName();
+                            if (
+                                tag.toLowerCase(Locale.ROOT).startsWith(username) ||
+                                    name.toLowerCase(Locale.ROOT).startsWith(username)
+                            ) {
+                                final Text displayName = Text.literal(member.getEffectiveName())
+                                    .styled(style -> {
+                                        if (member.getColorRaw() != Role.DEFAULT_COLOR_RAW) {
+                                            style = style.withColor(member.getColorRaw());
+                                        }
+                                        return style;
+                                    });
+                                if (results.putIfAbsent(tag, displayName) == null) {
+                                    suggestionsBuilder.suggest(tag);
+                                }
+                            }
+                        }
+                        for (final Role role : channel.getGuild().getRoleCache()) {
+                            if (!role.isMentionable()) continue;
+                            final String name = role.getName();
+                            if (name.toLowerCase(Locale.ROOT).startsWith(username)) {
+                                final Text displayName = Text.literal(role.getName())
+                                    .styled(style -> {
+                                        if (role.getColorRaw() != Role.DEFAULT_COLOR_RAW) {
+                                            style = style.withColor(role.getColorRaw());
+                                        }
+                                        return style;
+                                    });
+                                if (results.putIfAbsent(name, displayName) == null) {
+                                    suggestionsBuilder.suggest(name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            final Suggestions suggestions = suggestionsBuilder.build();
+            final PacketByteBuf response = PacketByteBufs.create();
+            response.writeVarInt(transactionId);
+            response.writeVarInt(suggestions.getRange().getStart());
+            response.writeVarInt(suggestions.getRange().getLength());
+            response.writeCollection(suggestions.getList(), (buf2, suggestion) ->
+                buf2.writeString(suggestion.getText())
+            );
+            response.writeMap(results, PacketByteBuf::writeString, PacketByteBuf::writeText);
+            responseSender.sendPacket(CHAT_PING_AUTOCOMPLETE, response);
+        });
+
         Registry.register(Registry.SOUND_EVENT, PING_SOUND_ID, PING_SOUND_EVENT);
 
         LOGGER.info("Initialized " + MOD_ID);
@@ -280,10 +357,8 @@ public class McDiscordChat implements ModInitializer {
 
             @Override
             protected boolean visitTranslatable(Text text, TranslatableComponent component) {
-                if (component.getKey().equals("chat.ping.discord.user")) {
-                    result.append("<@").append(component.getArgs()[1]).append('>');
-                } else if (component.getKey().equals("chat.ping.discord.role")) {
-                    result.append("<@&").append(component.getArgs()[1]).append('>');
+                if (component.getKey().startsWith("chat.mention.discord")) {
+                    result.append(component.getArgs()[1]);
                 } else {
                     result.append(text.getString());
                 }
@@ -337,7 +412,7 @@ public class McDiscordChat implements ModInitializer {
         TextVisitor.walk(message, new TextVisitor() {
             @Override
             protected boolean visitTranslatable(Text text, TranslatableComponent component) {
-                if (component.getKey().equals("chat.ping.minecraft")) {
+                if (component.getKey().equals("chat.mention.minecraft")) {
                     pinged.add(currentServer.getPlayerManager().getPlayer(component.getArgs()[1].toString()));
                     return false;
                 }
@@ -354,10 +429,6 @@ public class McDiscordChat implements ModInitializer {
         while (i < text.length()) {
             final char c = text.charAt(i);
             if (c == '\\') {
-                if (i < text.length() - 1 && text.charAt(i + 1) == ':') {
-                    i++;
-                    continue;
-                }
                 if (i < text.length() - 1 && text.charAt(i + 1) == '<') {
                     current.append('<');
                     i += 2;
@@ -398,7 +469,7 @@ public class McDiscordChat implements ModInitializer {
                         final int lastGt = text.indexOf('>', nextColon + 1);
                         if (lastGt != -1) {
                             try {
-                                final long emojiId = Long.parseLong(text.substring(nextColon + 1, lastGt));
+                                final long emojiId = Long.parseLong(text, nextColon + 1, lastGt, 10);
                                 current.appendCodePoint(getEmojiCP(text.substring(startI + 1, nextColon + 1), emojiId, true));
                                 i = lastGt + 1;
                                 continue;
@@ -411,6 +482,108 @@ public class McDiscordChat implements ModInitializer {
                     } else {
                         i = startI;
                     }
+                } else if (jda != null) {
+                    final TextChannel channel = jda.getTextChannelById(CONFIG.getMessageChannel());
+                    if (channel != null) {
+                        final int lastGt = text.indexOf('>', i + 1);
+                        if (lastGt != -1 && lastGt - i > 2) {
+                            final String mentionType;
+                            if (text.charAt(i + 1) == '#') {
+                                mentionType = "#";
+                            } else if (text.charAt(i + 1) == '@') {
+                                if (text.charAt(i + 2) == '!') {
+                                    mentionType = "@!";
+                                } else if (text.charAt(i + 2) == '&') {
+                                    mentionType = "@&";
+                                } else {
+                                    mentionType = "@";
+                                }
+                            } else {
+                                mentionType = null;
+                            }
+                            if (mentionType != null) {
+                                try {
+                                    result.append(current.toString());
+                                    current.setLength(0);
+                                    final long mentionId = Long.parseLong(text, i + mentionType.length() + 1, lastGt, 10);
+                                    switch (mentionType) {
+                                        case "@", "@!" -> {
+                                            final Member member = channel.getGuild().getMemberById(mentionId);
+                                            final String displayName;
+                                            final int roleColor;
+                                            if (member == null) {
+                                                displayName = "<@" + mentionId + ">";
+                                                roleColor = 0x7d92dd;
+                                            } else {
+                                                displayName = "@" + member.getEffectiveName();
+                                                roleColor = member.getColorRaw();
+                                            }
+                                            result.append(
+                                                Text.translatable(
+                                                    "chat.mention.discord.custom",
+                                                    displayName,
+                                                    "<@" + mentionId + '>'
+                                                ).styled(style -> style.withColor(
+                                                    roleColor == Role.DEFAULT_COLOR_RAW ? 0x7d92dd : roleColor
+                                                ))
+                                            );
+                                        }
+                                        case "@&" -> {
+                                            final Role role = channel.getGuild().getRoleById(mentionId);
+                                            final String displayName;
+                                            final int roleColor;
+                                            if (role == null) {
+                                                displayName = "<@&" + mentionId + ">";
+                                                roleColor = 0x7d92dd;
+                                            } else {
+                                                displayName = "@" + role.getName();
+                                                roleColor = role.getColorRaw();
+                                            }
+                                            result.append(
+                                                Text.translatable(
+                                                    "chat.mention.discord.custom",
+                                                    displayName,
+                                                    "<@&" + mentionId + '>'
+                                                ).styled(style -> style.withColor(
+                                                    roleColor == Role.DEFAULT_COLOR_RAW ? 0x7d92dd : roleColor
+                                                ))
+                                            );
+                                        }
+                                        case "#" -> {
+                                            final Channel mentionChannel = channel.getGuild().getChannelById(Channel.class, mentionId);
+                                            final String displayName;
+                                            if (mentionChannel == null) {
+                                                displayName = "<#" + mentionId + ">";
+                                            } else {
+                                                displayName = "#" + mentionChannel.getName();
+                                            }
+                                            result.append(
+                                                Text.translatable(
+                                                    "chat.mention.discord.custom",
+                                                    displayName,
+                                                    "<#" + mentionId + '>'
+                                                ).styled(style ->
+                                                    style.withColor(0x7d92dd)
+                                                        .withClickEvent(new ClickEvent(
+                                                            ClickEvent.Action.OPEN_URL,
+                                                            "discord://discord.com/channels/" +
+                                                                channel.getGuild().getId() + "/" + mentionId
+                                                        ))
+                                                        .withHoverEvent(new HoverEvent(
+                                                            HoverEvent.Action.SHOW_TEXT,
+                                                            Text.literal("Open channel in Discord client")
+                                                        ))
+                                                )
+                                            );
+                                        }
+                                    }
+                                    i = lastGt + 1;
+                                    continue;
+                                } catch (NumberFormatException ignored) {
+                                }
+                            }
+                        }
+                    }
                 }
             } else if (c == '@') {
                 int spaceIndex = text.indexOf(' ', i + 1);
@@ -418,7 +591,11 @@ public class McDiscordChat implements ModInitializer {
                     spaceIndex = text.length();
                 }
                 String username = text.substring(i + 1, spaceIndex);
-                final ServerPlayerEntity player = currentServer.getPlayerManager().getPlayer(username);
+                ServerPlayerEntity player = currentServer.getPlayerManager().getPlayer(username);
+                while (player == null && username.length() > 1) {
+                    username = username.substring(0, username.length() - 1);
+                    player = currentServer.getPlayerManager().getPlayer(username);
+                }
                 if (player != null) {
                     result.append(current.toString());
                     current.setLength(0);
@@ -429,12 +606,12 @@ public class McDiscordChat implements ModInitializer {
                     }
                     result.append(
                         Text.translatable(
-                            "chat.ping.minecraft",
+                            "chat.mention.minecraft",
                             displayName,
                             player.getEntityName()
                         ).setStyle(style)
                     );
-                    i = spaceIndex;
+                    i += username.length() + 1;
                     continue;
                 }
                 if (jda != null) {
@@ -459,9 +636,9 @@ public class McDiscordChat implements ModInitializer {
                             current.setLength(0);
                             result.append(
                                 Text.translatable(
-                                    "chat.ping.discord.user",
+                                    "chat.mention.discord",
                                     member == null ? user.getName() : member.getEffectiveName(),
-                                    user.getId()
+                                    "<@" + user.getId() + '>'
                                 ).styled(style -> style.withColor(
                                     member == null || member.getColorRaw() == Role.DEFAULT_COLOR_RAW
                                         ? 0x7d92dd : member.getColorRaw()
@@ -472,46 +649,26 @@ public class McDiscordChat implements ModInitializer {
                         }
                     }
                     if (channel != null) {
-                        List<Role> filterIter = channel.getGuild()
-                            .getRoleCache()
-                            .stream()
-                            .filter(Role::isMentionable)
-                            .toList();
-                        if (!filterIter.isEmpty()) {
-                            int[] textI = {i + 1};
-                            int[] nameI = {0};
-                            while (textI[0] < text.length()) {
-                                filterIter = filterIter.stream()
-                                    .filter(role -> {
-                                        final String name = role.getName();
-                                        if (nameI[0] >= name.length()) return false;
-                                        return text.regionMatches(true, textI[0], name, nameI[0], 1);
-                                    })
-                                    .toList();
-                                if (filterIter.size() <= 1) break;
-                                textI[0]++;
-                                nameI[0]++;
-                            }
-                            if (!filterIter.isEmpty()) {
-                                final Role role = filterIter.stream()
-                                    .min(Comparator.comparing(r -> r.getName().length()))
-                                    .orElseThrow();
-                                if (text.regionMatches(true, i + 1, role.getName(), 0, role.getName().length())) {
-                                    result.append(current.toString());
-                                    current.setLength(0);
-                                    result.append(
-                                        Text.translatable(
-                                            "chat.ping.discord.role",
-                                            role.getName(),
-                                            role.getId()
-                                        ).styled(style -> style.withColor(
-                                            role.getColorRaw() == Role.DEFAULT_COLOR_RAW
-                                                ? 0x7d92dd : role.getColorRaw()
-                                        ))
-                                    );
-                                    i += role.getName().length() + 1;
-                                    continue;
-                                }
+                        final List<Role> roles = getMatchingRoles(channel.getGuild(), text, i);
+                        if (!roles.isEmpty()) {
+                            final Role role = roles.stream()
+                                .min(Comparator.comparing(r -> r.getName().length()))
+                                .orElseThrow();
+                            if (text.regionMatches(true, i + 1, role.getName(), 0, role.getName().length())) {
+                                result.append(current.toString());
+                                current.setLength(0);
+                                result.append(
+                                    Text.translatable(
+                                        "chat.mention.discord",
+                                        role.getName(),
+                                        "<@&" + role.getId() + '>'
+                                    ).styled(style -> style.withColor(
+                                        role.getColorRaw() == Role.DEFAULT_COLOR_RAW
+                                            ? 0x7d92dd : role.getColorRaw()
+                                    ))
+                                );
+                                i += role.getName().length() + 1;
+                                continue;
                             }
                         }
                     }
@@ -522,6 +679,30 @@ public class McDiscordChat implements ModInitializer {
         }
         result.append(current.toString());
         return result;
+    }
+
+    private static List<Role> getMatchingRoles(Guild guild, String text, int atI) {
+        List<Role> filterIter = guild.getRoleCache()
+            .stream()
+            .filter(Role::isMentionable)
+            .toList();
+        if (!filterIter.isEmpty()) {
+            int[] textI = {atI + 1};
+            int[] nameI = {0};
+            while (textI[0] < text.length()) {
+                filterIter = filterIter.stream()
+                    .filter(role -> {
+                        final String name = role.getName();
+                        if (nameI[0] >= name.length()) return false;
+                        return text.regionMatches(true, textI[0], name, nameI[0], 1);
+                    })
+                    .toList();
+                if (filterIter.size() <= 1) break;
+                textI[0]++;
+                nameI[0]++;
+            }
+        }
+        return filterIter;
     }
 
     public static int getEmojiCP(String emojiName, long emojiId, boolean syncWithClients) {

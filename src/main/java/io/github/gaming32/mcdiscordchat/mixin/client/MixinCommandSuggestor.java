@@ -3,10 +3,19 @@ package io.github.gaming32.mcdiscordchat.mixin.client;
 import com.mojang.brigadier.suggestion.Suggestion;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
+import io.github.gaming32.mcdiscordchat.McDiscordChat;
 import io.github.gaming32.mcdiscordchat.client.McDiscordChatClient;
+import io.github.gaming32.mcdiscordchat.util.ColorUtil;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.screen.CommandSuggestor;
 import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.network.PacketByteBuf;
+import net.minecraft.text.Text;
+import net.minecraft.text.TextColor;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -37,21 +46,35 @@ public abstract class MixinCommandSuggestor {
         ),
         cancellable = true
     )
-    private void emojiSuggestions(CallbackInfo ci) {
+    private void customSuggestions(CallbackInfo ci) {
         final String text = textField.getText().substring(0, textField.getCursor());
+        emojiSuggestions(ci, text);
+        if (!ci.isCancelled()) {
+            pingSuggestions(ci, text);
+        }
+        if (ci.isCancelled() && pendingSuggestions != null) {
+            pendingSuggestions.thenRun(() -> {
+                if (pendingSuggestions.isDone() && client.options.getCommandSuggestions().get()) {
+                    showSuggestions(false);
+                }
+            });
+        }
+    }
+
+    private void emojiSuggestions(CallbackInfo ci, String text) {
         final int lastColon = text.lastIndexOf(':');
         if (lastColon == -1) return;
         if (lastColon > 0) {
             final int secondLastColon = text.lastIndexOf(':', lastColon - 1);
             if (
                 secondLastColon != -1 &&
-                McDiscordChatClient.EMOJI_NAMES.containsKey(
-                    text.substring(secondLastColon + 1, lastColon)
-                )
+                    McDiscordChatClient.EMOJI_NAMES.containsKey(
+                        text.substring(secondLastColon + 1, lastColon)
+                    )
             ) return;
         }
         ci.cancel();
-        final SuggestionsBuilder builder = new SuggestionsBuilder(text, text.lastIndexOf(':') + 1);
+        final SuggestionsBuilder builder = new SuggestionsBuilder(text, lastColon + 1);
         final String toMatch = builder.getRemainingLowerCase();
         McDiscordChatClient.EMOJI_NAMES
             .keySet()
@@ -59,11 +82,18 @@ public abstract class MixinCommandSuggestor {
             .filter(emoji -> emoji.toLowerCase(Locale.ROOT).startsWith(toMatch))
             .forEach(emoji -> builder.suggest(emoji + ':'));
         pendingSuggestions = builder.buildFuture();
-        pendingSuggestions.thenRun(() -> {
-            if (pendingSuggestions.isDone() && client.options.getCommandSuggestions().get()) {
-                showSuggestions(false);
-            }
-        });
+    }
+
+    private void pingSuggestions(CallbackInfo ci, String text) {
+        if (text.indexOf('@') == -1) return;
+        ci.cancel();
+        pendingSuggestions = McDiscordChatClient.pingSuggestionsFuture = new CompletableFuture<>();
+        final PacketByteBuf buf = PacketByteBufs.create();
+        buf.writeVarInt(McDiscordChatClient.pingSuggestionsTransactionId++);
+        buf.writeString(text);
+        if (ClientPlayNetworking.canSend(McDiscordChat.CHAT_PING_AUTOCOMPLETE)) {
+            ClientPlayNetworking.send(McDiscordChat.CHAT_PING_AUTOCOMPLETE, buf);
+        }
     }
 
     @Redirect(
@@ -74,12 +104,7 @@ public abstract class MixinCommandSuggestor {
         )
     )
     private String getSuggestionText(Suggestion instance) {
-        final String text = instance.getText();
-        if (textField.getText().startsWith("/") || text.isEmpty()) return text;
-        final String cutText = text.substring(0, text.length() - 1);
-        final String emoji = McDiscordChatClient.EMOJI_NAMES.get(cutText);
-        if (emoji == null) return text; // Probably not an emoji
-        return emoji + ' ' + cutText;
+        return instance.getText(); // TODO: implement like below
     }
 
     @Mixin(CommandSuggestor.SuggestionWindow.class)
@@ -90,16 +115,28 @@ public abstract class MixinCommandSuggestor {
             method = "render",
             at = @At(
                 value = "INVOKE",
-                target = "Lcom/mojang/brigadier/suggestion/Suggestion;getText()Ljava/lang/String;"
+                target = "Lnet/minecraft/client/font/TextRenderer;drawWithShadow(Lnet/minecraft/client/util/math/MatrixStack;Ljava/lang/String;FFI)I"
             )
         )
-        private String getSuggestionText(Suggestion instance) {
-            final String text = instance.getText();
-            if (typedText.startsWith("/") || text.isEmpty()) return text;
-            final String cutText = text.substring(0, text.length() - 1);
-            final String emoji = McDiscordChatClient.EMOJI_NAMES.get(cutText);
-            if (emoji == null) return text; // Probably not an emoji
-            return emoji + ' ' + cutText;
+        private int drawCustomSuggestion(TextRenderer instance, MatrixStack matrices, String text, float x, float y, int color) {
+            if (typedText.startsWith("/") || text.isEmpty()) {
+                return instance.drawWithShadow(matrices, text, x, y, color);
+            }
+            if (text.endsWith(":")) {
+                final String cutText = text.substring(0, text.length() - 1);
+                final String emoji = McDiscordChatClient.EMOJI_NAMES.get(cutText);
+                if (emoji != null) {
+                    return instance.drawWithShadow(matrices, emoji + ' ' + cutText, x, y, color);
+                }
+            }
+            Text pingText = McDiscordChatClient.pingSuggestionsDisplays.get(text);
+            if (pingText != null) {
+                if (!ColorUtil.isGrayscale(color)) {
+                    pingText = pingText.copy().styled(style -> style.withColor((TextColor)null));
+                }
+                return instance.drawWithShadow(matrices, pingText, x, y, color);
+            }
+            return instance.drawWithShadow(matrices, text, x, y, color);
         }
     }
 }
