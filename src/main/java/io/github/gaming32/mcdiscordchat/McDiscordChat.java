@@ -52,10 +52,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -283,8 +280,10 @@ public class McDiscordChat implements ModInitializer {
 
             @Override
             protected boolean visitTranslatable(Text text, TranslatableComponent component) {
-                if (component.getKey().equals("chat.ping.discord")) {
+                if (component.getKey().equals("chat.ping.discord.user")) {
                     result.append("<@").append(component.getArgs()[1]).append('>');
+                } else if (component.getKey().equals("chat.ping.discord.role")) {
+                    result.append("<@&").append(component.getArgs()[1]).append('>');
                 } else {
                     result.append(text.getString());
                 }
@@ -439,6 +438,7 @@ public class McDiscordChat implements ModInitializer {
                     continue;
                 }
                 if (jda != null) {
+                    final TextChannel channel = jda.getTextChannelById(CONFIG.getMessageChannel());
                     final int poundIndex = text.indexOf('#', i + 1);
                     if (poundIndex != -1 && poundIndex < text.length() - 4) {
                         username = text.substring(i + 1, poundIndex + 5);
@@ -450,7 +450,6 @@ public class McDiscordChat implements ModInitializer {
                         }
                         if (user != null) {
                             final Member member;
-                            final TextChannel channel = jda.getTextChannelById(CONFIG.getMessageChannel());
                             if (channel != null) {
                                 member = channel.getGuild().getMember(user);
                             } else {
@@ -460,7 +459,7 @@ public class McDiscordChat implements ModInitializer {
                             current.setLength(0);
                             result.append(
                                 Text.translatable(
-                                    "chat.ping.discord",
+                                    "chat.ping.discord.user",
                                     member == null ? user.getName() : member.getEffectiveName(),
                                     user.getId()
                                 ).styled(style -> style.withColor(
@@ -470,6 +469,50 @@ public class McDiscordChat implements ModInitializer {
                             );
                             i = poundIndex + 5;
                             continue;
+                        }
+                    }
+                    if (channel != null) {
+                        List<Role> filterIter = channel.getGuild()
+                            .getRoleCache()
+                            .stream()
+                            .filter(Role::isMentionable)
+                            .toList();
+                        if (!filterIter.isEmpty()) {
+                            int[] textI = {i + 1};
+                            int[] nameI = {0};
+                            while (textI[0] < text.length()) {
+                                filterIter = filterIter.stream()
+                                    .filter(role -> {
+                                        final String name = role.getName();
+                                        if (nameI[0] >= name.length()) return false;
+                                        return text.regionMatches(true, textI[0], name, nameI[0], 1);
+                                    })
+                                    .toList();
+                                if (filterIter.size() <= 1) break;
+                                textI[0]++;
+                                nameI[0]++;
+                            }
+                            if (!filterIter.isEmpty()) {
+                                final Role role = filterIter.stream()
+                                    .min(Comparator.comparing(r -> r.getName().length()))
+                                    .orElseThrow();
+                                if (text.regionMatches(true, i + 1, role.getName(), 0, role.getName().length())) {
+                                    result.append(current.toString());
+                                    current.setLength(0);
+                                    result.append(
+                                        Text.translatable(
+                                            "chat.ping.discord.role",
+                                            role.getName(),
+                                            role.getId()
+                                        ).styled(style -> style.withColor(
+                                            role.getColorRaw() == Role.DEFAULT_COLOR_RAW
+                                                ? 0x7d92dd : role.getColorRaw()
+                                        ))
+                                    );
+                                    i += role.getName().length() + 1;
+                                    continue;
+                                }
+                            }
                         }
                     }
                 }
