@@ -32,7 +32,7 @@ public class DiscordChatEventListener extends ListenerAdapter {
                     if (color != Role.DEFAULT_COLOR_RAW) {
                         style = style.withColor(color);
                     }
-                    return style;
+                    return McDiscordChat.addUserTooltip(style, event.getAuthor(), event.getMember());
                 })
         );
         text.append(Text.literal("> "));

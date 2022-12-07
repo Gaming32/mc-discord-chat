@@ -17,10 +17,8 @@ import it.unimi.dsi.fastutil.objects.AbstractObject2LongMap;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
-import net.dv8tion.jda.api.entities.Guild;
-import net.dv8tion.jda.api.entities.Member;
-import net.dv8tion.jda.api.entities.Role;
-import net.dv8tion.jda.api.entities.User;
+import net.dv8tion.jda.api.OnlineStatus;
+import net.dv8tion.jda.api.entities.*;
 import net.dv8tion.jda.api.entities.channel.Channel;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.emoji.RichCustomEmoji;
@@ -185,7 +183,8 @@ public class McDiscordChat implements ModInitializer {
                         CONFIG.getBotToken(),
                         GatewayIntent.getIntents(GatewayIntent.DEFAULT | GatewayIntent.getRaw(
                             GatewayIntent.MESSAGE_CONTENT,
-                            GatewayIntent.GUILD_MEMBERS
+                            GatewayIntent.GUILD_MEMBERS,
+                            GatewayIntent.GUILD_PRESENCES
                         ))
                     ).addEventListeners(new DiscordChatEventListener())
                         .build().awaitReady();
@@ -508,11 +507,16 @@ public class McDiscordChat implements ModInitializer {
                                     final long mentionId = Long.parseLong(text, i + mentionType.length() + 1, lastGt, 10);
                                     switch (mentionType) {
                                         case "@", "@!" -> {
+                                            final User user = jda.getUserById(mentionId);
                                             final Member member = channel.getGuild().getMemberById(mentionId);
                                             final String displayName;
                                             final int roleColor;
                                             if (member == null) {
-                                                displayName = "<@" + mentionId + ">";
+                                                if (user == null) {
+                                                    displayName = "<@" + mentionId + ">";
+                                                } else {
+                                                    displayName = "@" + user.getName();
+                                                }
                                                 roleColor = 0x7d92dd;
                                             } else {
                                                 displayName = "@" + member.getEffectiveName();
@@ -523,9 +527,18 @@ public class McDiscordChat implements ModInitializer {
                                                     "chat.mention.discord.custom",
                                                     displayName,
                                                     "<@" + mentionId + '>'
-                                                ).styled(style -> style.withColor(
-                                                    roleColor == Role.DEFAULT_COLOR_RAW ? 0x7d92dd : roleColor
-                                                ))
+                                                ).styled(style -> {
+                                                    style = style.withColor(
+                                                        roleColor == Role.DEFAULT_COLOR_RAW ? 0x7d92dd : roleColor
+                                                    );
+                                                    if (user != null) {
+                                                        return addUserTooltip(style, user, member);
+                                                    }
+                                                    if (member != null) {
+                                                        return addUserTooltip(style, member.getUser(), member);
+                                                    }
+                                                    return style;
+                                                })
                                             );
                                         }
                                         case "@&" -> {
@@ -634,15 +647,16 @@ public class McDiscordChat implements ModInitializer {
                             }
                             result.append(current.toString());
                             current.setLength(0);
+                            final User finalUser = user;
                             result.append(
                                 Text.translatable(
                                     "chat.mention.discord",
                                     member == null ? user.getName() : member.getEffectiveName(),
                                     "<@" + user.getId() + '>'
-                                ).styled(style -> style.withColor(
+                                ).styled(style -> addUserTooltip(style.withColor(
                                     member == null || member.getColorRaw() == Role.DEFAULT_COLOR_RAW
                                         ? 0x7d92dd : member.getColorRaw()
-                                ))
+                                ), finalUser, member))
                             );
                             i = poundIndex + 5;
                             continue;
@@ -679,6 +693,68 @@ public class McDiscordChat implements ModInitializer {
         }
         result.append(current.toString());
         return result;
+    }
+
+    static Style addUserTooltip(Style style, User user, @Nullable Member member) {
+        return style
+            .withHoverEvent(new HoverEvent(
+                HoverEvent.Action.SHOW_TEXT,
+                Text.empty()
+                    .append(
+                        Text.literal(member != null ? member.getEffectiveName() : user.getName())
+                            .styled(style2 -> {
+                                if (member != null) {
+                                    final int color = member.getColorRaw();
+                                    if (color != Role.DEFAULT_COLOR_RAW) {
+                                        return style2.withColor(color);
+                                    }
+                                }
+                                return style2;
+                            })
+                    )
+                    .append(statusToText(member))
+                    .append(activityToText(member))
+                    .append("\nShift-click to ping")
+            ))
+            .withInsertion('@' + user.getAsTag());
+    }
+
+    private static Text statusToText(@Nullable Member member) {
+        if (member == null) return Text.empty();
+        final OnlineStatus status = member.getOnlineStatus();
+        if (status == OnlineStatus.ONLINE || status == OnlineStatus.IDLE || status == OnlineStatus.DO_NOT_DISTURB) {
+            return Text.literal(" \u25cf").styled(style -> style.withColor(switch (member.getOnlineStatus()) {
+                case ONLINE -> 0x43b581;
+                case IDLE -> 0xfaa61a;
+                case DO_NOT_DISTURB -> 0xed4245;
+                default -> throw new AssertionError();
+            }));
+        }
+        return Text.literal(" \u25cc");
+    }
+
+    private static Text activityToText(@Nullable Member member) {
+        if (member == null) return Text.empty();
+        final List<Activity> activities = member.getActivities();
+        if (activities.isEmpty()) return Text.empty();
+
+        final Activity activity = activities.get(0);
+        final MutableText result = Text.literal("\n");
+        if (activity.getEmoji() != null) {
+            result.append(parseEmojis(activity.getEmoji().getFormatted() + ' '));
+        }
+        result.append(switch (activity.getType()) {
+            case PLAYING -> "Playing ";
+            case STREAMING -> "Streaming ";
+            case LISTENING -> "Listening ";
+            case WATCHING -> "Watching ";
+            case CUSTOM_STATUS -> "";
+            case COMPETING -> "Competing in ";
+        });
+        return result.append(
+                Text.literal(activity.getName())
+                    .styled(style -> style.withBold(true))
+            );
     }
 
     private static List<Role> getMatchingRoles(Guild guild, String text, int atI) {
