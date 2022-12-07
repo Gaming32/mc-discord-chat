@@ -25,7 +25,7 @@ public class McDiscordChatClient implements ClientModInitializer {
 
     public static int pingSuggestionsTransactionId;
     public static CompletableFuture<Suggestions> pingSuggestionsFuture;
-    public static Map<String, Text> pingSuggestionsDisplays = Map.of();
+    public static final Map<String, Text> pingSuggestionsDisplays = new HashMap<>();
 
     public static final ChatMessageTag DISCORD_TAG = new ChatMessageTag(
         0x7289da, null, Text.translatable("chat.tag.discord"), "Discord"
@@ -70,7 +70,7 @@ public class McDiscordChatClient implements ClientModInitializer {
             final int rangeLength = buf.readVarInt();
             final StringRange range = new StringRange(rangeStart, rangeStart + rangeLength);
             final Suggestions suggestions = new Suggestions(range, buf.readList(buf2 -> new Suggestion(range, buf2.readString())));
-            pingSuggestionsDisplays = buf.readMap(PacketByteBuf::readString, PacketByteBuf::readText);
+            pingSuggestionsDisplays.putAll(buf.readMap(PacketByteBuf::readString, PacketByteBuf::readText));
             pingSuggestionsFuture.complete(suggestions);
             pingSuggestionsFuture = null;
         });
