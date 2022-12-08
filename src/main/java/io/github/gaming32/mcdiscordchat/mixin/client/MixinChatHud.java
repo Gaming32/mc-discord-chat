@@ -2,15 +2,18 @@ package io.github.gaming32.mcdiscordchat.mixin.client;
 
 import io.github.gaming32.mcdiscordchat.client.ChatMessageInfo;
 import io.github.gaming32.mcdiscordchat.client.McDiscordChatClient;
+import io.github.gaming32.mcdiscordchat.client.MessageEditor;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawableHelper;
 import net.minecraft.client.gui.hud.ChatHud;
 import net.minecraft.client.gui.hud.ChatHudMessage;
 import net.minecraft.client.gui.hud.ChatMessageTag;
+import net.minecraft.client.gui.screen.ChatScreen;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.network.chat.MessageSignature;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
+import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -44,8 +47,12 @@ public abstract class MixinChatHud {
     @Shadow @Final private List<ChatHudMessage> messages;
 
     @Shadow @Final private MinecraftClient client;
+
+    @Shadow @Nullable public abstract ChatScreen getChatScreen();
+
     @Unique
     private final Map<ChatHudMessage.Line, ChatHudMessage> lineToMessageMap = new WeakHashMap<>();
+    private final Map<ChatHudMessage, ChatHudMessage.Line> messageToFirstLineMap = new WeakHashMap<>();
 
     @Inject(method = "render", at = @At("TAIL"))
     private void renderButtons(MatrixStack matrices, int tickDelta, CallbackInfo ci) {
@@ -71,9 +78,13 @@ public abstract class MixinChatHud {
         McDiscordChatClient.hoveredChatMessage = null;
         for (int i = 0; i + scrolledLines < visibleMessages.size() && i < visibleLineCount; i++) {
             final ChatHudMessage.Line line = visibleMessages.get(i + scrolledLines);
-            if (line == null || !line.endOfEntry()) continue;
+            if (line == null) continue;
             final ChatMessageInfo messageInfo = McDiscordChatClient.CHAT_MESSAGES_GUI_LOOKUP.get(lineToMessageMap.get(line));
-            if (messageInfo == null || messageInfo.getFlags() == 0) continue;
+            if (
+                messageInfo == null ||
+                messageInfo.getFlags() == 0 ||
+                messageToFirstLineMap.get(messageInfo.getMessage()) != line
+            ) continue;
             final int y = -i * lineHeight;
             final int textY = (int)(y + lineOffset);
             final int buttonCount = Integer.bitCount(messageInfo.getFlags());
@@ -99,6 +110,34 @@ public abstract class MixinChatHud {
                 McDiscordChatClient.hoveredChatMessage = messageInfo;
             }
         }
+
+        final MessageEditor editor = (MessageEditor)getChatScreen();
+        if (editor != null) {
+            if (editor.getEditingMessage() != null) {
+                matrices.push();
+                matrices.translate(0, 0, 50);
+                final int y = lineHeight + 2;
+                final int textY = (int)(y + lineOffset);
+                final boolean hovered = mouseY >= y - lineHeight && mouseY < y && mouseX >= -2 && mouseX < lineHeight;
+                DrawableHelper.fill(matrices, -2, y - lineHeight - 1, lineHeight + 1, y, hovered ? backgroundHovered : backgroundNotHovered);
+                DrawableHelper.fill(matrices, lineHeight + 1, y - lineHeight - 1, width + 48, y, backgroundNotHovered);
+                matrices.translate(0, 0, 50);
+                //noinspection SuspiciousNameCombination
+                DrawableHelper.fill(matrices, lineHeight, y - lineHeight - 1, lineHeight + 1, y, foregroundColor);
+                client.textRenderer.drawWithShadow(matrices, "X", 1, textY, foregroundColor);
+                final int x = client.textRenderer.drawWithShadow(matrices, "Editing ", lineHeight + 4, textY, foregroundColor);
+                client.textRenderer.drawWithShadow(
+                    matrices,
+                    messageToFirstLineMap.get(editor.getEditingMessage().getMessage()).content(),
+                    x, textY, foregroundColor
+                );
+                matrices.pop();
+                editor.setHoveringCancelEdit(hovered);
+            } else {
+                editor.setHoveringCancelEdit(false);
+            }
+        }
+
         matrices.pop();
     }
 
@@ -108,13 +147,21 @@ public abstract class MixinChatHud {
     )
     private void mapLinesToMessages(Text message, MessageSignature signature, int ticks, ChatMessageTag tag, boolean refresh, CallbackInfo ci) {
         lineToMessageMap.clear();
+        ChatHudMessage.Line lastLine = null;
         ChatHudMessage currentMessage = null;
         int messageIndex = 0;
         for (final ChatHudMessage.Line line : visibleMessages) {
             if (line.endOfEntry()) {
+                if (currentMessage != null) {
+                    messageToFirstLineMap.put(currentMessage, lastLine);
+                }
                 currentMessage = messages.get(messageIndex++);
             }
             lineToMessageMap.put(line, currentMessage);
+            lastLine = line;
+        }
+        if (currentMessage != null) {
+            messageToFirstLineMap.put(currentMessage, lastLine);
         }
     }
 }

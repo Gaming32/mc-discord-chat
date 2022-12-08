@@ -3,6 +3,7 @@ package io.github.gaming32.mcdiscordchat.mixin.client;
 import io.github.gaming32.mcdiscordchat.McDiscordChat;
 import io.github.gaming32.mcdiscordchat.client.ChatMessageInfo;
 import io.github.gaming32.mcdiscordchat.client.McDiscordChatClient;
+import io.github.gaming32.mcdiscordchat.client.MessageEditor;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
@@ -19,16 +20,23 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(ChatScreen.class)
-public class MixinChatScreen {
+public class MixinChatScreen implements MessageEditor {
     @Shadow protected TextFieldWidget chatField;
     @Unique
     private ChatMessageInfo editingMessage;
     @Unique
     private String oldMessage;
+    @Unique
+    private boolean hoveringCancelEdit;
 
     @Inject(method = "init", at = @At("TAIL"))
     private void customClickEvent(CallbackInfo ci) {
         ScreenMouseEvents.allowMouseClick((Screen)(Object)this).register((screen, mouseX, mouseY, button) -> {
+            if (hoveringCancelEdit) {
+                editingMessage = null;
+                chatField.setText(oldMessage);
+                return false;
+            }
             final ChatMessageInfo message = McDiscordChatClient.hoveredChatMessage;
             if (message == null || message.getHoveredElement() == 0) return true;
             if (message.getHoveredElement() == 1 && message.isEditable()) {
@@ -70,5 +78,15 @@ public class MixinChatScreen {
         chatField.setText(oldMessage);
 
         cir.setReturnValue(true);
+    }
+
+    @Override
+    public ChatMessageInfo getEditingMessage() {
+        return editingMessage;
+    }
+
+    @Override
+    public void setHoveringCancelEdit(boolean hoveringCancelEdit) {
+        this.hoveringCancelEdit = hoveringCancelEdit;
     }
 }
