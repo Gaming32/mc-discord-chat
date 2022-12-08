@@ -9,12 +9,10 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import io.github.gaming32.mcdiscordchat.util.TextVisitor;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.longs.AbstractLong2BooleanMap;
-import it.unimi.dsi.fastutil.longs.Long2BooleanMap;
-import it.unimi.dsi.fastutil.longs.Long2IntMap;
-import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.*;
 import it.unimi.dsi.fastutil.objects.AbstractObject2LongMap;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
+import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.OnlineStatus;
@@ -40,6 +38,7 @@ import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.*;
 import net.minecraft.text.component.LiteralComponent;
 import net.minecraft.text.component.TranslatableComponent;
+import net.minecraft.unmapped.C_zzdolisx;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.registry.Registry;
 import org.jetbrains.annotations.Nullable;
@@ -65,6 +64,9 @@ public class McDiscordChat implements ModInitializer {
     public static final Identifier EMOJI_SYNC_NAME = new Identifier(MOD_ID, "emoji/sync_name");
     public static final Identifier CHAT_DISCORD_MESSAGE = new Identifier(MOD_ID, "chat/discord_message");
     public static final Identifier CHAT_PING_AUTOCOMPLETE = new Identifier(MOD_ID, "chat/ping_autocomplete");
+    public static final Identifier CHAT_MESSAGE_ID = new Identifier(MOD_ID, "chat/message_id");
+    public static final Identifier CHAT_MESSAGE_EDIT = new Identifier(MOD_ID, "chat/message_edit");
+    public static final Identifier CHAT_MESSAGE_REMOVE = new Identifier(MOD_ID, "chat/message_remove");
 
     public static final Identifier PING_SOUND_ID = new Identifier(MOD_ID, "ping");
     public static final SoundEvent PING_SOUND_EVENT = new SoundEvent(PING_SOUND_ID);
@@ -83,6 +85,10 @@ public class McDiscordChat implements ModInitializer {
     public static final Map<String, Long2BooleanMap.Entry> EMOJI_NAMES = new HashMap<>();
     public static final Long2BooleanMap.Entry BUILTIN_EMOJI_MARKER = new AbstractLong2BooleanMap.BasicEntry();
 
+    private static final Object2LongMap<C_zzdolisx> MINECRAFT_MESSAGE_IDS = new Object2LongOpenHashMap<>();
+    static final Long2LongMap DISCORD_MESSAGE_IDS = new Long2LongOpenHashMap();
+    static long nextMessageId = 0L;
+
     static MinecraftServer currentServer;
 
     @Nullable
@@ -92,6 +98,9 @@ public class McDiscordChat implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        MINECRAFT_MESSAGE_IDS.defaultReturnValue(-1L);
+        DISCORD_MESSAGE_IDS.defaultReturnValue(-1L);
+
         try (JsonReader reader = new JsonReader(Files.newBufferedReader(
             FabricLoader.getInstance()
                 .getModContainer(MOD_ID)
@@ -113,6 +122,9 @@ public class McDiscordChat implements ModInitializer {
         }
 
         ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> {
+            final long messageId = nextMessageId++;
+            MINECRAFT_MESSAGE_IDS.put(message, messageId);
+
             final Text text = message.unsignedContent().orElseGet(() -> message.signedBody().content().decorated());
             executePings(text);
             if (chatWebhook != null) {
@@ -124,7 +136,7 @@ public class McDiscordChat implements ModInitializer {
                         .setAvatarUrl("https://crafatar.com/renders/head/" + sender.getUuid() + "?overlay=true")
                         .setAllowedMentions(getAllowedMentions())
                         .build()
-                );
+                ).thenAccept(discordMessage -> DISCORD_MESSAGE_IDS.put(discordMessage.getId(), messageId));
             }
         });
 
@@ -227,6 +239,9 @@ public class McDiscordChat implements ModInitializer {
         });
 
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            MINECRAFT_MESSAGE_IDS.clear();
+            DISCORD_MESSAGE_IDS.clear();
+            nextMessageId = 0L;
             if (chatWebhook != null) {
                 chatWebhook.send("Server stopped!");
                 chatWebhook.close();
@@ -318,6 +333,14 @@ public class McDiscordChat implements ModInitializer {
         Registry.register(Registry.SOUND_EVENT, PING_SOUND_ID, PING_SOUND_EVENT);
 
         LOGGER.info("Initialized " + MOD_ID);
+    }
+
+    public static void linkMessageWithId(C_zzdolisx message) {
+        final long messageId = MINECRAFT_MESSAGE_IDS.getLong(message);
+        if (messageId == -1L) return;
+        final PacketByteBuf buf = PacketByteBufs.create();
+        buf.writeVarLong(messageId);
+        currentServer.getPlayerManager().sendToAll(ServerPlayNetworking.createS2CPacket(CHAT_MESSAGE_ID, buf));
     }
 
     private static AllowedMentions getAllowedMentions() {

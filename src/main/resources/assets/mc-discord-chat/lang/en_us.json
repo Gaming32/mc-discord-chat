@@ -1,5 +1,5 @@
 {
-  "chat.tag.discord": "This message was sent on Discord and was forwarded to Minecraft.",
+  "chat.tag.discord": "This message was sent on Discord and forwarded to Minecraft.",
   "subtitles.mc-discord-chat.ping": "Chat Mention",
   "chat.mention.discord": "@%1$s",
   "chat.mention.discord.custom": "%1$s",

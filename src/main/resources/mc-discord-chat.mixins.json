@@ -4,8 +4,10 @@
   "package": "io.github.gaming32.mcdiscordchat.mixin",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
+    "MixinServerPlayNetworkHandler"
   ],
   "client": [
+    "client.ChatHudAccessor",
     "client.MixinCommandSuggestor",
     "client.MixinCommandSuggestor$MixinSuggestionWindow",
     "client.MixinFontType",
