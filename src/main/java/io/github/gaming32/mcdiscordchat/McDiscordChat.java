@@ -202,7 +202,7 @@ public class McDiscordChat implements ModInitializer {
             for (final Object2LongMap.Entry<String> extraCustom : CONFIG.getExtraCustomEmojis().object2LongEntrySet()) {
                 // Extra custom emojis cannot be animated currently.
                 addEmojiName(extraCustom.getKey(), extraCustom.getLongValue(), false);
-                getEmojiCP(extraCustom.getKey(), extraCustom.getLongValue(), false);
+                getEmojiCP(':' + extraCustom.getKey() + ':', extraCustom.getLongValue(), false);
             }
 
             if (!CONFIG.getBotToken().isEmpty()) {
@@ -224,8 +224,9 @@ public class McDiscordChat implements ModInitializer {
                 if (jda != null) {
                     LOGGER.info("Discord bot started!");
                     for (final RichCustomEmoji emoji : jda.getEmojis()) {
+                        final String start = emoji.isAnimated() ? "a:" : ":";
                         addEmojiName(emoji.getName(), emoji.getIdLong(), emoji.isAnimated());
-                        getEmojiCP(emoji.getName(), emoji.getIdLong(), false);
+                        getEmojiCP(start + emoji.getName() + ':', emoji.getIdLong(), false);
                     }
                     if (CONFIG.getWebhookUrl().isEmpty()) {
                         if (CONFIG.getMessageChannel() != 0L) {
