@@ -30,6 +30,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.network.PacketByteBuf;
+import net.minecraft.network.chat.SignedChatMessage;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.sound.SoundCategory;
@@ -38,7 +39,6 @@ import net.minecraft.sound.SoundEvents;
 import net.minecraft.text.*;
 import net.minecraft.text.component.LiteralComponent;
 import net.minecraft.text.component.TranslatableComponent;
-import net.minecraft.unmapped.C_zzdolisx;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.Util;
@@ -93,7 +93,7 @@ public class McDiscordChat implements ModInitializer {
 
     static final UUID DISCORD_USER_UUID = Util.NIL_UUID;
     static final Long2ObjectMap<UUID> MESSAGE_AUTHORS = new Long2ObjectOpenHashMap<>();
-    private static final Object2LongMap<C_zzdolisx> MINECRAFT_MESSAGE_IDS = new Object2LongOpenHashMap<>();
+    private static final Object2LongMap<SignedChatMessage> MINECRAFT_MESSAGE_IDS = new Object2LongOpenHashMap<>();
     static final Long2LongMap DISCORD_TO_MC_MESSAGE_IDS = new Long2LongOpenHashMap();
     static final Long2LongMap MC_TO_DISCORD_MESSAGE_IDS = new Long2LongOpenHashMap();
     private static final Long2ObjectMap<String> ORIGINAL_MESSAGES = new Long2ObjectOpenHashMap<>();
@@ -424,7 +424,7 @@ public class McDiscordChat implements ModInitializer {
         return discordId;
     }
 
-    public static void linkMessageWithId(ServerPlayerEntity author, C_zzdolisx message) {
+    public static void linkMessageWithId(ServerPlayerEntity author, SignedChatMessage message) {
         final long messageId = MINECRAFT_MESSAGE_IDS.getLong(message);
         if (messageId == -1L) return;
         for (final ServerPlayerEntity player : currentServer.getPlayerManager().getPlayerList()) {

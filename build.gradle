@@ -22,7 +22,8 @@ dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     mappings loom.layered {
         officialMojangMappings()
-        mappings "org.quiltmc:quilt-mappings:${project.quilt_mappings}:intermediary-v2"
+        mappings file("mappings/quilt-mappings-1.19.2+build.local-intermediary-v2.jar")
+//        mappings "org.quiltmc:quilt-mappings:${project.quilt_mappings}:intermediary-v2"
     }
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
