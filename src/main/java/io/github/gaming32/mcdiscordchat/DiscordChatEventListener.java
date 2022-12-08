@@ -9,7 +9,6 @@ import net.dv8tion.jda.api.events.message.MessageUpdateEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.network.Packet;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.MutableText;
@@ -41,16 +40,23 @@ public class DiscordChatEventListener extends ListenerAdapter {
         vanillaText.append(minecraftFormatted.getKey());
 
         final long messageId = McDiscordChat.nextMessageId++;
-        McDiscordChat.DISCORD_MESSAGE_IDS.put(event.getMessageIdLong(), messageId);
-
-        final PacketByteBuf buf = PacketByteBufs.create();
-        buf.writeText(minecraftFormatted.getKey());
-        buf.writeVarLong(messageId);
-        final Packet<?> packet = ServerPlayNetworking.createS2CPacket(McDiscordChat.CHAT_DISCORD_MESSAGE, buf);
+        McDiscordChat.DISCORD_TO_MC_MESSAGE_IDS.put(event.getMessageIdLong(), messageId);
+        McDiscordChat.MC_TO_DISCORD_MESSAGE_IDS.put(messageId, event.getMessageIdLong());
+        McDiscordChat.MESSAGE_AUTHORS.put(messageId, McDiscordChat.DISCORD_USER_UUID);
 
         for (final ServerPlayerEntity player : McDiscordChat.currentServer.getPlayerManager().getPlayerList()) {
             if (ServerPlayNetworking.canSend(player, McDiscordChat.CHAT_DISCORD_MESSAGE)) {
-                player.networkHandler.sendPacket(packet);
+                final PacketByteBuf buf = PacketByteBufs.create();
+                buf.writeText(minecraftFormatted.getKey());
+                buf.writeVarLong(messageId);
+                final int flags;
+                if (player.hasPermissionLevel(2) && McDiscordChat.CONFIG.areOpsDiscordModerators()) {
+                    flags = McDiscordChat.MESSAGE_DELETABLE;
+                } else {
+                    flags = 0;
+                }
+                buf.writeVarInt(flags);
+                ServerPlayNetworking.send(player, McDiscordChat.CHAT_DISCORD_MESSAGE, buf);
             } else {
                 player.sendSystemMessage(vanillaText);
             }
@@ -59,7 +65,7 @@ public class DiscordChatEventListener extends ListenerAdapter {
 
     @Override
     public void onMessageUpdate(@NotNull MessageUpdateEvent event) {
-        final long messageId = McDiscordChat.DISCORD_MESSAGE_IDS.get(event.getMessageIdLong());
+        final long messageId = McDiscordChat.DISCORD_TO_MC_MESSAGE_IDS.get(event.getMessageIdLong());
         if (messageId == -1L) return;
         final PacketByteBuf buf = PacketByteBufs.create();
         buf.writeVarLong(messageId);
@@ -71,13 +77,9 @@ public class DiscordChatEventListener extends ListenerAdapter {
 
     @Override
     public void onMessageDelete(@NotNull MessageDeleteEvent event) {
-        final long messageId = McDiscordChat.DISCORD_MESSAGE_IDS.remove(event.getMessageIdLong());
+        final long messageId = McDiscordChat.DISCORD_TO_MC_MESSAGE_IDS.get(event.getMessageIdLong());
         if (messageId == -1L) return;
-        final PacketByteBuf buf = PacketByteBufs.create();
-        buf.writeVarLong(messageId);
-        McDiscordChat.currentServer.getPlayerManager().sendToAll(ServerPlayNetworking.createS2CPacket(
-            McDiscordChat.CHAT_MESSAGE_REMOVE, buf
-        ));
+        McDiscordChat.deleteMessage(messageId);
     }
 
     private static Map.Entry<Text, Text> formatDiscordMessage(Member author, Message message) {

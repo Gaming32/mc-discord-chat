@@ -17,6 +17,8 @@ public final class DiscordChatConfig {
     @NotNull
     private String webhookUrl = "";
 
+    private boolean opsAreDiscordModerators = true;
+
     @NotNull
     private final Object2LongMap<String> extraCustomEmojis = new Object2LongOpenHashMap<>();
 
@@ -28,6 +30,7 @@ public final class DiscordChatConfig {
                 case "botToken" -> botToken = reader.nextString();
                 case "messageChannel" -> messageChannel = reader.nextLong();
                 case "webhookUrl" -> webhookUrl = reader.nextString();
+                case "opsAreDiscordModerators" -> opsAreDiscordModerators = reader.nextBoolean();
                 case "extraCustomEmojis" -> {
                     extraCustomEmojis.clear();
                     reader.beginObject();
@@ -56,6 +59,9 @@ public final class DiscordChatConfig {
             writer.comment("The webhook to send messages as");
             writer.name("webhookUrl").value(webhookUrl);
 
+            writer.comment("Whether server operators (of level 2) can delete messages sent by Discord users");
+            writer.name("opsAreDiscordModerators").value(opsAreDiscordModerators);
+
             writer.comment("Extra emojis to include for Minecraft");
             writer.name("extraCustomEmojis").beginObject(); {
                 for (final Object2LongMap.Entry<String> entry : extraCustomEmojis.object2LongEntrySet()) {
@@ -81,6 +87,10 @@ public final class DiscordChatConfig {
 
     public void setWebhookUrl(@NotNull String webhookUrl) {
         this.webhookUrl = webhookUrl;
+    }
+
+    public boolean areOpsDiscordModerators() {
+        return opsAreDiscordModerators;
     }
 
     @NotNull

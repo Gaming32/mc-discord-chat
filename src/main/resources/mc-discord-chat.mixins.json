@@ -8,6 +8,8 @@
   ],
   "client": [
     "client.ChatHudAccessor",
+    "client.MixinChatHud",
+    "client.MixinChatScreen",
     "client.MixinCommandSuggestor",
     "client.MixinCommandSuggestor$MixinSuggestionWindow",
     "client.MixinFontType",

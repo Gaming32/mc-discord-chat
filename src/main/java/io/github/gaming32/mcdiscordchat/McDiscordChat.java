@@ -40,6 +40,7 @@ import net.minecraft.text.component.LiteralComponent;
 import net.minecraft.text.component.TranslatableComponent;
 import net.minecraft.unmapped.C_zzdolisx;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.Util;
 import net.minecraft.util.registry.Registry;
 import org.jetbrains.annotations.Nullable;
 import org.quiltmc.json5.JsonWriter;
@@ -68,6 +69,9 @@ public class McDiscordChat implements ModInitializer {
     public static final Identifier CHAT_MESSAGE_EDIT = new Identifier(MOD_ID, "chat/message_edit");
     public static final Identifier CHAT_MESSAGE_REMOVE = new Identifier(MOD_ID, "chat/message_remove");
 
+    public static final int MESSAGE_EDITABLE = 0x1;
+    public static final int MESSAGE_DELETABLE = 0x2;
+
     public static final Identifier PING_SOUND_ID = new Identifier(MOD_ID, "ping");
     public static final SoundEvent PING_SOUND_EVENT = new SoundEvent(PING_SOUND_ID);
 
@@ -85,8 +89,11 @@ public class McDiscordChat implements ModInitializer {
     public static final Map<String, Long2BooleanMap.Entry> EMOJI_NAMES = new HashMap<>();
     public static final Long2BooleanMap.Entry BUILTIN_EMOJI_MARKER = new AbstractLong2BooleanMap.BasicEntry();
 
+    static final UUID DISCORD_USER_UUID = Util.NIL_UUID;
+    static final Long2ObjectMap<UUID> MESSAGE_AUTHORS = new Long2ObjectOpenHashMap<>();
     private static final Object2LongMap<C_zzdolisx> MINECRAFT_MESSAGE_IDS = new Object2LongOpenHashMap<>();
-    static final Long2LongMap DISCORD_MESSAGE_IDS = new Long2LongOpenHashMap();
+    static final Long2LongMap DISCORD_TO_MC_MESSAGE_IDS = new Long2LongOpenHashMap();
+    static final Long2LongMap MC_TO_DISCORD_MESSAGE_IDS = new Long2LongOpenHashMap();
     static long nextMessageId = 0L;
 
     static MinecraftServer currentServer;
@@ -99,7 +106,8 @@ public class McDiscordChat implements ModInitializer {
     @Override
     public void onInitialize() {
         MINECRAFT_MESSAGE_IDS.defaultReturnValue(-1L);
-        DISCORD_MESSAGE_IDS.defaultReturnValue(-1L);
+        DISCORD_TO_MC_MESSAGE_IDS.defaultReturnValue(-1L);
+        MC_TO_DISCORD_MESSAGE_IDS.defaultReturnValue(-1L);
 
         try (JsonReader reader = new JsonReader(Files.newBufferedReader(
             FabricLoader.getInstance()
@@ -124,6 +132,7 @@ public class McDiscordChat implements ModInitializer {
         ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> {
             final long messageId = nextMessageId++;
             MINECRAFT_MESSAGE_IDS.put(message, messageId);
+            MESSAGE_AUTHORS.put(messageId, sender.getUuid());
 
             final Text text = message.unsignedContent().orElseGet(() -> message.signedBody().content().decorated());
             executePings(text);
@@ -136,7 +145,10 @@ public class McDiscordChat implements ModInitializer {
                         .setAvatarUrl("https://crafatar.com/renders/head/" + sender.getUuid() + "?overlay=true")
                         .setAllowedMentions(getAllowedMentions())
                         .build()
-                ).thenAccept(discordMessage -> DISCORD_MESSAGE_IDS.put(discordMessage.getId(), messageId));
+                ).thenAccept(discordMessage -> {
+                    DISCORD_TO_MC_MESSAGE_IDS.put(discordMessage.getId(), messageId);
+                    MC_TO_DISCORD_MESSAGE_IDS.put(messageId, discordMessage.getId());
+                });
             }
         });
 
@@ -239,8 +251,10 @@ public class McDiscordChat implements ModInitializer {
         });
 
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+            MESSAGE_AUTHORS.clear();
             MINECRAFT_MESSAGE_IDS.clear();
-            DISCORD_MESSAGE_IDS.clear();
+            DISCORD_TO_MC_MESSAGE_IDS.clear();
+            MC_TO_DISCORD_MESSAGE_IDS.clear();
             nextMessageId = 0L;
             if (chatWebhook != null) {
                 chatWebhook.send("Server stopped!");
@@ -330,17 +344,64 @@ public class McDiscordChat implements ModInitializer {
             responseSender.sendPacket(CHAT_PING_AUTOCOMPLETE, response);
         });
 
+        ServerPlayNetworking.registerGlobalReceiver(CHAT_MESSAGE_REMOVE, (server, player, handler, buf, responseSender) -> {
+            final long messageId = buf.readVarLong();
+            final UUID author = MESSAGE_AUTHORS.get(messageId);
+            if (author == null) return;
+            long discordMessageId = -1L;
+            if (author.equals(DISCORD_USER_UUID)) {
+                if (player.hasPermissionLevel(2) && CONFIG.areOpsDiscordModerators()) {
+                    discordMessageId = deleteMessage(messageId);
+                }
+            } else if (player.hasPermissionLevel(2) || author.equals(player.getUuid())) {
+                discordMessageId = deleteMessage(messageId);
+            }
+            if (discordMessageId != -1L && jda != null) {
+                final TextChannel channel = jda.getTextChannelById(CONFIG.getMessageChannel());
+                if (channel != null) {
+                    channel.deleteMessageById(discordMessageId).queue(
+                        ignored -> {}, t -> LOGGER.error("Failed to delete message", t)
+                    );
+                }
+            }
+        });
+
         Registry.register(Registry.SOUND_EVENT, PING_SOUND_ID, PING_SOUND_EVENT);
 
         LOGGER.info("Initialized " + MOD_ID);
     }
 
-    public static void linkMessageWithId(C_zzdolisx message) {
-        final long messageId = MINECRAFT_MESSAGE_IDS.getLong(message);
-        if (messageId == -1L) return;
+    static long deleteMessage(long messageId) {
+        final long discordId = MC_TO_DISCORD_MESSAGE_IDS.remove(messageId);
+        DISCORD_TO_MC_MESSAGE_IDS.remove(discordId);
+        MESSAGE_AUTHORS.remove(messageId);
         final PacketByteBuf buf = PacketByteBufs.create();
         buf.writeVarLong(messageId);
-        currentServer.getPlayerManager().sendToAll(ServerPlayNetworking.createS2CPacket(CHAT_MESSAGE_ID, buf));
+        McDiscordChat.currentServer.getPlayerManager().sendToAll(ServerPlayNetworking.createS2CPacket(
+            McDiscordChat.CHAT_MESSAGE_REMOVE, buf
+        ));
+        return discordId;
+    }
+
+    public static void linkMessageWithId(ServerPlayerEntity author, C_zzdolisx message) {
+        final long messageId = MINECRAFT_MESSAGE_IDS.getLong(message);
+        if (messageId == -1L) return;
+        for (final ServerPlayerEntity player : currentServer.getPlayerManager().getPlayerList()) {
+            if (ServerPlayNetworking.canSend(player, CHAT_MESSAGE_ID)) {
+                final PacketByteBuf buf = PacketByteBufs.create();
+                buf.writeVarLong(messageId);
+                final int flags;
+                if (player == author) {
+                    flags = MESSAGE_EDITABLE | MESSAGE_DELETABLE;
+                } else if (player.hasPermissionLevel(2)) {
+                    flags = MESSAGE_DELETABLE;
+                } else {
+                    flags = 0;
+                }
+                buf.writeVarInt(flags);
+                ServerPlayNetworking.send(player, CHAT_MESSAGE_ID, buf);
+            }
+        }
     }
 
     private static AllowedMentions getAllowedMentions() {
