@@ -77,7 +77,7 @@ public class MixinChatScreen implements MessageEditor {
         editingMessage = null;
         chatField.setText(oldMessage);
 
-        cir.setReturnValue(true);
+        cir.setReturnValue(false);
     }
 
     @Override
