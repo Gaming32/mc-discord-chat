@@ -39,6 +39,7 @@ import net.minecraft.text.*;
 import net.minecraft.text.component.LiteralComponent;
 import net.minecraft.text.component.TranslatableComponent;
 import net.minecraft.unmapped.C_zzdolisx;
+import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.Util;
 import net.minecraft.util.registry.Registry;
@@ -68,6 +69,7 @@ public class McDiscordChat implements ModInitializer {
     public static final Identifier CHAT_MESSAGE_ID = new Identifier(MOD_ID, "chat/message_id");
     public static final Identifier CHAT_MESSAGE_EDIT = new Identifier(MOD_ID, "chat/message_edit");
     public static final Identifier CHAT_MESSAGE_REMOVE = new Identifier(MOD_ID, "chat/message_remove");
+    public static final Identifier CHAT_MESSAGE_ORIGINAL = new Identifier(MOD_ID, "chat/message_original");
 
     public static final int MESSAGE_EDITABLE = 0x1;
     public static final int MESSAGE_DELETABLE = 0x2;
@@ -94,6 +96,7 @@ public class McDiscordChat implements ModInitializer {
     private static final Object2LongMap<C_zzdolisx> MINECRAFT_MESSAGE_IDS = new Object2LongOpenHashMap<>();
     static final Long2LongMap DISCORD_TO_MC_MESSAGE_IDS = new Long2LongOpenHashMap();
     static final Long2LongMap MC_TO_DISCORD_MESSAGE_IDS = new Long2LongOpenHashMap();
+    private static final Long2ObjectMap<String> ORIGINAL_MESSAGES = new Long2ObjectOpenHashMap<>();
     static long nextMessageId = 0L;
 
     static MinecraftServer currentServer;
@@ -108,6 +111,7 @@ public class McDiscordChat implements ModInitializer {
         MINECRAFT_MESSAGE_IDS.defaultReturnValue(-1L);
         DISCORD_TO_MC_MESSAGE_IDS.defaultReturnValue(-1L);
         MC_TO_DISCORD_MESSAGE_IDS.defaultReturnValue(-1L);
+        ORIGINAL_MESSAGES.defaultReturnValue("");
 
         try (JsonReader reader = new JsonReader(Files.newBufferedReader(
             FabricLoader.getInstance()
@@ -133,8 +137,9 @@ public class McDiscordChat implements ModInitializer {
             final long messageId = nextMessageId++;
             MINECRAFT_MESSAGE_IDS.put(message, messageId);
             MESSAGE_AUTHORS.put(messageId, sender.getUuid());
+            ORIGINAL_MESSAGES.put(messageId, message.signedBody().content().plain());
 
-            final Text text = message.unsignedContent().orElseGet(() -> message.signedBody().content().decorated());
+            final Text text = message.m_tfkcjptc();
             executePings(text);
             if (chatWebhook != null) {
                 assert jda != null;
@@ -251,11 +256,6 @@ public class McDiscordChat implements ModInitializer {
         });
 
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
-            MESSAGE_AUTHORS.clear();
-            MINECRAFT_MESSAGE_IDS.clear();
-            DISCORD_TO_MC_MESSAGE_IDS.clear();
-            MC_TO_DISCORD_MESSAGE_IDS.clear();
-            nextMessageId = 0L;
             if (chatWebhook != null) {
                 chatWebhook.send("Server stopped!");
                 chatWebhook.close();
@@ -266,7 +266,15 @@ public class McDiscordChat implements ModInitializer {
             }
         });
 
-        ServerLifecycleEvents.SERVER_STOPPED.register(server -> currentServer = null);
+        ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
+            MESSAGE_AUTHORS.clear();
+            MINECRAFT_MESSAGE_IDS.clear();
+            DISCORD_TO_MC_MESSAGE_IDS.clear();
+            MC_TO_DISCORD_MESSAGE_IDS.clear();
+            ORIGINAL_MESSAGES.clear();
+            nextMessageId = 0L;
+            currentServer = null;
+        });
 
         ServerPlayNetworking.registerGlobalReceiver(CHAT_PING_AUTOCOMPLETE, (server, player, handler, buf, responseSender) -> {
             final int transactionId = buf.readVarInt();
@@ -348,22 +356,55 @@ public class McDiscordChat implements ModInitializer {
             final long messageId = buf.readVarLong();
             final UUID author = MESSAGE_AUTHORS.get(messageId);
             if (author == null) return;
-            long discordMessageId = -1L;
+            boolean hasPermission = false;
             if (author.equals(DISCORD_USER_UUID)) {
                 if (player.hasPermissionLevel(2) && CONFIG.areOpsDiscordModerators()) {
-                    discordMessageId = deleteMessage(messageId);
+                    hasPermission = true;
                 }
             } else if (player.hasPermissionLevel(2) || author.equals(player.getUuid())) {
-                discordMessageId = deleteMessage(messageId);
+                hasPermission = true;
             }
-            if (discordMessageId != -1L && jda != null) {
-                final TextChannel channel = jda.getTextChannelById(CONFIG.getMessageChannel());
-                if (channel != null) {
-                    channel.deleteMessageById(discordMessageId).queue(
-                        ignored -> {}, t -> LOGGER.error("Failed to delete message", t)
-                    );
+            if (hasPermission) {
+                final long discordMessageId = deleteMessage(messageId);
+                if (jda != null) {
+                    final TextChannel channel = jda.getTextChannelById(CONFIG.getMessageChannel());
+                    if (channel != null) {
+                        channel.deleteMessageById(discordMessageId).queue(
+                            ignored -> {}, t -> LOGGER.error("Failed to delete message", t)
+                        );
+                    }
                 }
             }
+        });
+
+        ServerPlayNetworking.registerGlobalReceiver(CHAT_MESSAGE_ORIGINAL, (server, player, handler, buf, responseSender) -> {
+            final PacketByteBuf response = PacketByteBufs.create();
+            response.writeString(ORIGINAL_MESSAGES.get(buf.readVarLong()));
+            responseSender.sendPacket(CHAT_MESSAGE_ORIGINAL, response);
+        });
+
+        ServerPlayNetworking.registerGlobalReceiver(CHAT_MESSAGE_EDIT, (server, player, handler, buf, responseSender) -> {
+            final long messageId = buf.readVarLong();
+            final String newContents = buf.readString();
+            final UUID author = MESSAGE_AUTHORS.get(messageId);
+            if (author == null || !author.equals(player.getUuid())) return;
+            ORIGINAL_MESSAGES.put(messageId, newContents);
+            ServerMessageDecoratorEvent.EVENT.invoker().decorate(player, Text.literal(newContents)).thenAccept(text -> {
+                if (chatWebhook != null) {
+                    final long discordId = MC_TO_DISCORD_MESSAGE_IDS.get(messageId);
+                    if (discordId != -1) {
+                        chatWebhook.edit(discordId, internalToDiscord(text));
+                    }
+                }
+
+                final PacketByteBuf response = PacketByteBufs.create();
+                response.writeVarLong(messageId);
+                response.writeText(
+                    Text.translatable("chat.type.text", player.getDisplayName(), text)
+                        .append(Text.literal(" (edited)").formatted(Formatting.DARK_GRAY))
+                );
+                currentServer.getPlayerManager().sendToAll(ServerPlayNetworking.createS2CPacket(CHAT_MESSAGE_EDIT, response));
+            });
         });
 
         Registry.register(Registry.SOUND_EVENT, PING_SOUND_ID, PING_SOUND_EVENT);

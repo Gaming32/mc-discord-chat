@@ -8,6 +8,7 @@
   ],
   "client": [
     "client.ChatHudAccessor",
+    "client.ChatScreenAccessor",
     "client.MixinChatHud",
     "client.MixinChatScreen",
     "client.MixinCommandSuggestor",

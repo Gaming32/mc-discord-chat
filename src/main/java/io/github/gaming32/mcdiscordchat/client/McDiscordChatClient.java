@@ -5,6 +5,7 @@ import com.mojang.brigadier.suggestion.Suggestion;
 import com.mojang.brigadier.suggestion.Suggestions;
 import io.github.gaming32.mcdiscordchat.McDiscordChat;
 import io.github.gaming32.mcdiscordchat.mixin.client.ChatHudAccessor;
+import io.github.gaming32.mcdiscordchat.mixin.client.ChatScreenAccessor;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -121,6 +122,12 @@ public class McDiscordChatClient implements ClientModInitializer {
             final ChatHudAccessor chatHud = (ChatHudAccessor)client.inGameHud.getChatHud();
             if (chatHud.getMessages().remove(message.getMessage())) {
                 chatHud.refreshMessageRenders();
+            }
+        });
+
+        registerGlobalReceiver(McDiscordChat.CHAT_MESSAGE_ORIGINAL, (client, handler, buf, responseSender) -> {
+            if (client.currentScreen instanceof ChatScreenAccessor chatScreen) {
+                chatScreen.getChatField().setText(buf.readString());
             }
         });
 

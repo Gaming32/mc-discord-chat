@@ -65,6 +65,7 @@ public class DiscordChatEventListener extends ListenerAdapter {
 
     @Override
     public void onMessageUpdate(@NotNull MessageUpdateEvent event) {
+        if (event.getMember() == null) return; // Can happen if it's from the webhook
         final long messageId = McDiscordChat.DISCORD_TO_MC_MESSAGE_IDS.get(event.getMessageIdLong());
         if (messageId == -1L) return;
         final PacketByteBuf buf = PacketByteBufs.create();
