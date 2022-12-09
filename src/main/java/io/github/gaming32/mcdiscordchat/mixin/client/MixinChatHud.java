@@ -10,7 +10,7 @@ import net.minecraft.client.gui.hud.ChatHudMessage;
 import net.minecraft.client.gui.hud.ChatMessageTag;
 import net.minecraft.client.gui.screen.ChatScreen;
 import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.network.chat.MessageSignature;
+import net.minecraft.network.message.MessageSignature;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
 import org.jetbrains.annotations.Nullable;
@@ -142,7 +142,7 @@ public abstract class MixinChatHud {
     }
 
     @Inject(
-        method = "addMessage(Lnet/minecraft/text/Text;Lnet/minecraft/network/chat/MessageSignature;ILnet/minecraft/client/gui/hud/ChatMessageTag;Z)V",
+        method = "addMessage(Lnet/minecraft/text/Text;Lnet/minecraft/network/message/MessageSignature;ILnet/minecraft/client/gui/hud/ChatMessageTag;Z)V",
         at = @At("TAIL")
     )
     private void mapLinesToMessages(Text message, MessageSignature signature, int ticks, ChatMessageTag tag, boolean refresh, CallbackInfo ci) {

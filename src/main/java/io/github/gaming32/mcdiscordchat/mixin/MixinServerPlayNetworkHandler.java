@@ -1,7 +1,7 @@
 package io.github.gaming32.mcdiscordchat.mixin;
 
 import io.github.gaming32.mcdiscordchat.McDiscordChat;
-import net.minecraft.network.chat.SignedChatMessage;
+import net.minecraft.network.message.SignedChatMessage;
 import net.minecraft.server.network.ServerPlayNetworkHandler;
 import net.minecraft.server.network.ServerPlayerEntity;
 import org.spongepowered.asm.mixin.Mixin;

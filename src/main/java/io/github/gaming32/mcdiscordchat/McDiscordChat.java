@@ -30,7 +30,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.network.PacketByteBuf;
-import net.minecraft.network.chat.SignedChatMessage;
+import net.minecraft.network.message.SignedChatMessage;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.sound.SoundCategory;
@@ -137,7 +137,7 @@ public class McDiscordChat implements ModInitializer {
             final long messageId = nextMessageId++;
             MINECRAFT_MESSAGE_IDS.put(message, messageId);
             MESSAGE_AUTHORS.put(messageId, sender.getUuid());
-            ORIGINAL_MESSAGES.put(messageId, message.signedBody().content().plain());
+            ORIGINAL_MESSAGES.put(messageId, message.m_ckjuswtx().plain());
 
             final Text text = message.m_tfkcjptc();
             executePings(text);

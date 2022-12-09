@@ -3,7 +3,7 @@
   "id": "mc-discord-chat",
   "version": "${version}",
   "name": "Minecraft Discord Chat",
-  "description": "\n\nBuilt-in Discord emojis thanks to AndrosDiscordEmojis. Built-in emojis are licensed under CC-BY-4.0.",
+  "description": "Built-in Discord emojis thanks to AndrosDiscordEmojis. Built-in emojis are licensed under CC-BY-4.0.",
   "authors": [
     "Gaming32"
   ],
@@ -24,7 +24,7 @@
   ],
   "accessWidener": "mc-discord-chat.accessWidener",
   "depends": {
-    "fabricloader": ">=0.14.11",
+    "fabricloader": "*",
     "fabric": "*",
     "minecraft": "1.19.2",
     "fabric-language-kotlin": "*"
