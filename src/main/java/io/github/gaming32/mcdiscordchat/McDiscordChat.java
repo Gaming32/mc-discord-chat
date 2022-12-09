@@ -71,6 +71,8 @@ public class McDiscordChat implements ModInitializer {
     public static final Identifier CHAT_MESSAGE_REMOVE = new Identifier(MOD_ID, "chat/message_remove");
     public static final Identifier CHAT_MESSAGE_ORIGINAL = new Identifier(MOD_ID, "chat/message_original");
 
+    public static final Identifier SMALL_FONT = new Identifier(MOD_ID, "small");
+
     public static final int MESSAGE_EDITABLE = 0x1;
     public static final int MESSAGE_DELETABLE = 0x2;
 
@@ -402,7 +404,9 @@ public class McDiscordChat implements ModInitializer {
                 response.writeVarLong(messageId);
                 response.writeText(
                     Text.translatable("chat.type.text", player.getDisplayName(), text)
-                        .append(Text.literal(" (edited)").formatted(Formatting.DARK_GRAY))
+                        .append(Text.literal(" (edited)").styled(style ->
+                            style.withFormatting(Formatting.DARK_GRAY).withFont(McDiscordChat.SMALL_FONT)
+                        ))
                 );
                 currentServer.getPlayerManager().sendToAll(ServerPlayNetworking.createS2CPacket(CHAT_MESSAGE_EDIT, response));
             });

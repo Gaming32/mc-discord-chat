@@ -104,7 +104,7 @@ public class DiscordChatEventListener extends ListenerAdapter {
         final MutableText messageText = McDiscordChat.parseEmojis(indentSubsequentLines(message.getContentRaw())).copy();
         if (message.isEdited()) {
             messageText.append(Text.literal(" (edited)").styled(style ->
-                style.withFormatting(Formatting.DARK_GRAY)
+                style.withFormatting(Formatting.DARK_GRAY).withFont(McDiscordChat.SMALL_FONT)
             ));
         }
 
