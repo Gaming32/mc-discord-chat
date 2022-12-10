@@ -39,23 +39,22 @@ public class DiscordChatEventListener extends ListenerAdapter {
         vanillaText.append(Text.literal("] ").styled(style -> style.withColor(0x2c2f33).withBold(true)));
         vanillaText.append(minecraftFormatted.getKey());
 
-        final long messageId = McDiscordChat.nextMessageId++;
-        McDiscordChat.DISCORD_TO_MC_MESSAGE_IDS.put(event.getMessageIdLong(), messageId);
-        McDiscordChat.MC_TO_DISCORD_MESSAGE_IDS.put(messageId, event.getMessageIdLong());
-        McDiscordChat.MESSAGE_AUTHORS.put(messageId, McDiscordChat.DISCORD_USER_UUID);
+        final MessageKey<String> messageKey = MessageKey.ofDiscord(event.getMessageId());
+        McDiscordChat.MC_TO_DISCORD_MESSAGES.put(messageKey, event.getMessageId());
+        McDiscordChat.MESSAGE_AUTHORS.put(messageKey, McDiscordChat.DISCORD_USER_UUID);
 
         for (final ServerPlayerEntity player : McDiscordChat.currentServer.getPlayerManager().getPlayerList()) {
             if (ServerPlayNetworking.canSend(player, McDiscordChat.CHAT_DISCORD_MESSAGE)) {
                 final PacketByteBuf buf = PacketByteBufs.create();
                 buf.writeText(minecraftFormatted.getKey());
-                buf.writeVarLong(messageId);
-                final int flags;
+                messageKey.write(buf);
+                final int permissions;
                 if (player.hasPermissionLevel(2) && McDiscordChat.CONFIG.areOpsDiscordModerators()) {
-                    flags = McDiscordChat.MESSAGE_DELETABLE;
+                    permissions = McDiscordChat.MESSAGE_DELETABLE;
                 } else {
-                    flags = 0;
+                    permissions = 0;
                 }
-                buf.writeVarInt(flags);
+                buf.writeVarInt(permissions);
                 ServerPlayNetworking.send(player, McDiscordChat.CHAT_DISCORD_MESSAGE, buf);
             } else {
                 player.sendSystemMessage(vanillaText);
@@ -66,10 +65,8 @@ public class DiscordChatEventListener extends ListenerAdapter {
     @Override
     public void onMessageUpdate(@NotNull MessageUpdateEvent event) {
         if (event.getMember() == null) return; // Can happen if it's from the webhook
-        final long messageId = McDiscordChat.DISCORD_TO_MC_MESSAGE_IDS.get(event.getMessageIdLong());
-        if (messageId == -1L) return;
         final PacketByteBuf buf = PacketByteBufs.create();
-        buf.writeVarLong(messageId);
+        MessageKey.ofDiscord(event.getMessageId()).write(buf);
         buf.writeText(formatDiscordMessage(Objects.requireNonNull(event.getMember()), event.getMessage()).getKey());
         McDiscordChat.currentServer.getPlayerManager().sendToAll(ServerPlayNetworking.createS2CPacket(
             McDiscordChat.CHAT_MESSAGE_EDIT, buf
@@ -78,9 +75,9 @@ public class DiscordChatEventListener extends ListenerAdapter {
 
     @Override
     public void onMessageDelete(@NotNull MessageDeleteEvent event) {
-        final long messageId = McDiscordChat.DISCORD_TO_MC_MESSAGE_IDS.get(event.getMessageIdLong());
-        if (messageId == -1L) return;
-        McDiscordChat.deleteMessage(messageId);
+        final MessageKey<?> messageKey = McDiscordChat.MC_TO_DISCORD_MESSAGES.inverse().get(event.getMessageId());
+        if (messageKey == null) return;
+        McDiscordChat.deleteMessage(messageKey);
     }
 
     private static Map.Entry<Text, Text> formatDiscordMessage(Member author, Message message) {

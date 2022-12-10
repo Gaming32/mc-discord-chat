@@ -3,16 +3,20 @@ package io.github.gaming32.mcdiscordchat;
 import club.minnced.discord.webhook.external.JDAWebhookClient;
 import club.minnced.discord.webhook.send.AllowedMentions;
 import club.minnced.discord.webhook.send.WebhookMessageBuilder;
+import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
 import com.google.gson.stream.JsonReader;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import io.github.gaming32.mcdiscordchat.util.TextVisitor;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.longs.*;
+import it.unimi.dsi.fastutil.longs.AbstractLong2BooleanMap;
+import it.unimi.dsi.fastutil.longs.Long2BooleanMap;
+import it.unimi.dsi.fastutil.longs.Long2IntMap;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.objects.AbstractObject2LongMap;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
-import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.OnlineStatus;
@@ -66,10 +70,10 @@ public class McDiscordChat implements ModInitializer {
     public static final Identifier EMOJI_SYNC_NAME = new Identifier(MOD_ID, "emoji/sync_name");
     public static final Identifier CHAT_DISCORD_MESSAGE = new Identifier(MOD_ID, "chat/discord_message");
     public static final Identifier CHAT_PING_AUTOCOMPLETE = new Identifier(MOD_ID, "chat/ping_autocomplete");
-    public static final Identifier CHAT_MESSAGE_ID = new Identifier(MOD_ID, "chat/message_id");
     public static final Identifier CHAT_MESSAGE_EDIT = new Identifier(MOD_ID, "chat/message_edit");
     public static final Identifier CHAT_MESSAGE_REMOVE = new Identifier(MOD_ID, "chat/message_remove");
     public static final Identifier CHAT_MESSAGE_ORIGINAL = new Identifier(MOD_ID, "chat/message_original");
+    public static final Identifier CHAT_MESSAGE_PERMISSIONS = new Identifier(MOD_ID, "chat/message_permissions");
 
     public static final Identifier SMALL_FONT = new Identifier(MOD_ID, "small");
 
@@ -79,27 +83,23 @@ public class McDiscordChat implements ModInitializer {
     public static final Identifier PING_SOUND_ID = new Identifier(MOD_ID, "ping");
     public static final SoundEvent PING_SOUND_EVENT = new SoundEvent(PING_SOUND_ID);
 
-    public static final Map<String, String> EMOJI_SHORTCODES = new HashMap<>();
+    public static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve(MOD_ID + ".json5");
+    public static final DiscordChatConfig CONFIG = new DiscordChatConfig();
 
+    public static final Map<String, String> EMOJI_SHORTCODES = new HashMap<>();
     public static final Long2IntMap EMOJI_CHARS = new Long2IntOpenHashMap();
     private static final Int2ObjectMap<Object2LongMap.Entry<String>> EMOJI_CHARS_REVERSE = new Int2ObjectOpenHashMap<>();
     public static final int PUA_FIRST = 0xF0000;
     public static final int PUA_LAST = 0xFFFFD;
     public static final int UNKNOWN_EMOJI_CP = PUA_FIRST;
     private static int nextEmojiCP = UNKNOWN_EMOJI_CP + 1;
-
-    public static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve(MOD_ID + ".json5");
-    public static final DiscordChatConfig CONFIG = new DiscordChatConfig();
     public static final Map<String, Long2BooleanMap.Entry> EMOJI_NAMES = new HashMap<>();
     public static final Long2BooleanMap.Entry BUILTIN_EMOJI_MARKER = new AbstractLong2BooleanMap.BasicEntry();
 
     static final UUID DISCORD_USER_UUID = Util.NIL_UUID;
-    static final Long2ObjectMap<UUID> MESSAGE_AUTHORS = new Long2ObjectOpenHashMap<>();
-    private static final Object2LongMap<SignedChatMessage> MINECRAFT_MESSAGE_IDS = new Object2LongOpenHashMap<>();
-    static final Long2LongMap DISCORD_TO_MC_MESSAGE_IDS = new Long2LongOpenHashMap();
-    static final Long2LongMap MC_TO_DISCORD_MESSAGE_IDS = new Long2LongOpenHashMap();
-    private static final Long2ObjectMap<String> ORIGINAL_MESSAGES = new Long2ObjectOpenHashMap<>();
-    static long nextMessageId = 0L;
+    static final Map<MessageKey<?>, UUID> MESSAGE_AUTHORS = new HashMap<>();
+    private static final Map<MessageKey<?>, String> ORIGINAL_MESSAGES = new HashMap<>();
+    static final BiMap<MessageKey<?>, String> MC_TO_DISCORD_MESSAGES = HashBiMap.create();
 
     static MinecraftServer currentServer;
 
@@ -110,11 +110,6 @@ public class McDiscordChat implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        MINECRAFT_MESSAGE_IDS.defaultReturnValue(-1L);
-        DISCORD_TO_MC_MESSAGE_IDS.defaultReturnValue(-1L);
-        MC_TO_DISCORD_MESSAGE_IDS.defaultReturnValue(-1L);
-        ORIGINAL_MESSAGES.defaultReturnValue("");
-
         try (JsonReader reader = new JsonReader(Files.newBufferedReader(
             FabricLoader.getInstance()
                 .getModContainer(MOD_ID)
@@ -136,10 +131,9 @@ public class McDiscordChat implements ModInitializer {
         }
 
         ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> {
-            final long messageId = nextMessageId++;
-            MINECRAFT_MESSAGE_IDS.put(message, messageId);
-            MESSAGE_AUTHORS.put(messageId, sender.getUuid());
-            ORIGINAL_MESSAGES.put(messageId, message.m_ckjuswtx().plain());
+            final MessageKey<?> messageKey = MessageKey.ofMinecraft(message);
+            MESSAGE_AUTHORS.put(messageKey, sender.getUuid());
+            ORIGINAL_MESSAGES.put(messageKey, message.m_ckjuswtx().plain());
 
             final Text text = message.m_tfkcjptc();
             executePings(text);
@@ -152,10 +146,9 @@ public class McDiscordChat implements ModInitializer {
                         .setAvatarUrl("https://crafatar.com/renders/head/" + sender.getUuid() + "?overlay=true")
                         .setAllowedMentions(getAllowedMentions())
                         .build()
-                ).thenAccept(discordMessage -> {
-                    DISCORD_TO_MC_MESSAGE_IDS.put(discordMessage.getId(), messageId);
-                    MC_TO_DISCORD_MESSAGE_IDS.put(messageId, discordMessage.getId());
-                });
+                ).thenAccept(discordMessage ->
+                    MC_TO_DISCORD_MESSAGES.put(messageKey, Long.toUnsignedString(discordMessage.getId()))
+                );
             }
         });
 
@@ -271,11 +264,8 @@ public class McDiscordChat implements ModInitializer {
 
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
             MESSAGE_AUTHORS.clear();
-            MINECRAFT_MESSAGE_IDS.clear();
-            DISCORD_TO_MC_MESSAGE_IDS.clear();
-            MC_TO_DISCORD_MESSAGE_IDS.clear();
             ORIGINAL_MESSAGES.clear();
-            nextMessageId = 0L;
+            MC_TO_DISCORD_MESSAGES.clear();
             currentServer = null;
         });
 
@@ -356,8 +346,8 @@ public class McDiscordChat implements ModInitializer {
         });
 
         ServerPlayNetworking.registerGlobalReceiver(CHAT_MESSAGE_REMOVE, (server, player, handler, buf, responseSender) -> {
-            final long messageId = buf.readVarLong();
-            final UUID author = MESSAGE_AUTHORS.get(messageId);
+            final MessageKey<?> messageKey = MessageKey.read(buf);
+            final UUID author = MESSAGE_AUTHORS.get(messageKey);
             if (author == null) return;
             boolean hasPermission = false;
             if (author.equals(DISCORD_USER_UUID)) {
@@ -368,7 +358,7 @@ public class McDiscordChat implements ModInitializer {
                 hasPermission = true;
             }
             if (hasPermission) {
-                final long discordMessageId = deleteMessage(messageId);
+                final String discordMessageId = deleteMessage(messageKey);
                 if (jda != null) {
                     final TextChannel channel = jda.getTextChannelById(CONFIG.getMessageChannel());
                     if (channel != null) {
@@ -382,26 +372,26 @@ public class McDiscordChat implements ModInitializer {
 
         ServerPlayNetworking.registerGlobalReceiver(CHAT_MESSAGE_ORIGINAL, (server, player, handler, buf, responseSender) -> {
             final PacketByteBuf response = PacketByteBufs.create();
-            response.writeString(ORIGINAL_MESSAGES.get(buf.readVarLong()));
+            response.writeString(ORIGINAL_MESSAGES.get(MessageKey.read(buf)));
             responseSender.sendPacket(CHAT_MESSAGE_ORIGINAL, response);
         });
 
         ServerPlayNetworking.registerGlobalReceiver(CHAT_MESSAGE_EDIT, (server, player, handler, buf, responseSender) -> {
-            final long messageId = buf.readVarLong();
+            final MessageKey<?> messageKey = MessageKey.read(buf);
             final String newContents = buf.readString();
-            final UUID author = MESSAGE_AUTHORS.get(messageId);
+            final UUID author = MESSAGE_AUTHORS.get(messageKey);
             if (author == null || !author.equals(player.getUuid())) return;
-            ORIGINAL_MESSAGES.put(messageId, newContents);
+            ORIGINAL_MESSAGES.put(messageKey, newContents);
             ServerMessageDecoratorEvent.EVENT.invoker().decorate(player, Text.literal(newContents)).thenAccept(text -> {
                 if (chatWebhook != null) {
-                    final long discordId = MC_TO_DISCORD_MESSAGE_IDS.get(messageId);
-                    if (discordId != -1) {
+                    final String discordId = MC_TO_DISCORD_MESSAGES.get(messageKey);
+                    if (discordId != null) {
                         chatWebhook.edit(discordId, internalToDiscord(text));
                     }
                 }
 
                 final PacketByteBuf response = PacketByteBufs.create();
-                response.writeVarLong(messageId);
+                messageKey.write(response);
                 response.writeText(
                     Text.translatable("chat.type.text", player.getDisplayName(), text)
                         .append(Text.literal(" (edited)").styled(style ->
@@ -417,35 +407,33 @@ public class McDiscordChat implements ModInitializer {
         LOGGER.info("Initialized " + MOD_ID);
     }
 
-    static long deleteMessage(long messageId) {
-        final long discordId = MC_TO_DISCORD_MESSAGE_IDS.remove(messageId);
-        DISCORD_TO_MC_MESSAGE_IDS.remove(discordId);
-        MESSAGE_AUTHORS.remove(messageId);
+    static String deleteMessage(MessageKey<?> messageKey) {
+        final String discordId = MC_TO_DISCORD_MESSAGES.remove(messageKey);
+        MESSAGE_AUTHORS.remove(messageKey);
         final PacketByteBuf buf = PacketByteBufs.create();
-        buf.writeVarLong(messageId);
+        messageKey.write(buf);
         McDiscordChat.currentServer.getPlayerManager().sendToAll(ServerPlayNetworking.createS2CPacket(
             McDiscordChat.CHAT_MESSAGE_REMOVE, buf
         ));
         return discordId;
     }
 
-    public static void linkMessageWithId(ServerPlayerEntity author, SignedChatMessage message) {
-        final long messageId = MINECRAFT_MESSAGE_IDS.getLong(message);
-        if (messageId == -1L) return;
+    public static void broadcastMessagePermissions(ServerPlayerEntity author, SignedChatMessage message) {
+        final MessageKey<?> messageKey = MessageKey.ofMinecraft(message);
         for (final ServerPlayerEntity player : currentServer.getPlayerManager().getPlayerList()) {
-            if (ServerPlayNetworking.canSend(player, CHAT_MESSAGE_ID)) {
+            if (ServerPlayNetworking.canSend(player, CHAT_MESSAGE_PERMISSIONS)) {
                 final PacketByteBuf buf = PacketByteBufs.create();
-                buf.writeVarLong(messageId);
-                final int flags;
+                messageKey.write(buf);
+                final int permissions;
                 if (player == author) {
-                    flags = MESSAGE_EDITABLE | MESSAGE_DELETABLE;
+                    permissions = MESSAGE_EDITABLE | MESSAGE_DELETABLE;
                 } else if (player.hasPermissionLevel(2)) {
-                    flags = MESSAGE_DELETABLE;
+                    permissions = MESSAGE_DELETABLE;
                 } else {
-                    flags = 0;
+                    permissions = 0;
                 }
-                buf.writeVarInt(flags);
-                ServerPlayNetworking.send(player, CHAT_MESSAGE_ID, buf);
+                buf.writeVarInt(permissions);
+                ServerPlayNetworking.send(player, CHAT_MESSAGE_PERMISSIONS, buf);
             }
         }
     }

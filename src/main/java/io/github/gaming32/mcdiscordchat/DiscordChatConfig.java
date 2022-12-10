@@ -19,6 +19,8 @@ public final class DiscordChatConfig {
 
     private boolean opsAreDiscordModerators = true;
 
+//    private boolean forceTimestampMessageKey = false;
+
     @NotNull
     private final Object2LongMap<String> extraCustomEmojis = new Object2LongOpenHashMap<>();
 
@@ -31,6 +33,7 @@ public final class DiscordChatConfig {
                 case "messageChannel" -> messageChannel = reader.nextLong();
                 case "webhookUrl" -> webhookUrl = reader.nextString();
                 case "opsAreDiscordModerators" -> opsAreDiscordModerators = reader.nextBoolean();
+//                case "forceTimestampMessageKey" -> forceTimestampMessageKey = reader.nextBoolean();
                 case "extraCustomEmojis" -> {
                     extraCustomEmojis.clear();
                     reader.beginObject();
@@ -62,6 +65,10 @@ public final class DiscordChatConfig {
             writer.comment("Whether server operators (of level 2) can delete messages sent by Discord users");
             writer.name("opsAreDiscordModerators").value(opsAreDiscordModerators);
 
+//            writer.comment("Force the use of timestamps to identify all messages.");
+//            writer.comment("Normally the message signature is used, unless it's stripped, such as by No Chat Reports.");
+//            writer.name("forceTimestampMessageKey").value(forceTimestampMessageKey);
+
             writer.comment("Extra emojis to include for Minecraft");
             writer.name("extraCustomEmojis").beginObject(); {
                 for (final Object2LongMap.Entry<String> entry : extraCustomEmojis.object2LongEntrySet()) {
@@ -92,6 +99,10 @@ public final class DiscordChatConfig {
     public boolean areOpsDiscordModerators() {
         return opsAreDiscordModerators;
     }
+
+//    public boolean forceTimestampMessageKey() {
+//        return forceTimestampMessageKey;
+//    }
 
     @NotNull
     public Object2LongMap<String> getExtraCustomEmojis() {

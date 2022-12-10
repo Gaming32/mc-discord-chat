@@ -1,42 +1,45 @@
 package io.github.gaming32.mcdiscordchat.client;
 
 import io.github.gaming32.mcdiscordchat.McDiscordChat;
+import io.github.gaming32.mcdiscordchat.MessageKey;
 import net.minecraft.client.gui.hud.ChatHudMessage;
 
 public final class ChatMessageInfo {
-    private final long id;
-    private ChatHudMessage message;
-    private final int flags;
+    private final MessageKey<?> key;
+    private ChatHudMessage hudMessage;
+    private int permissions;
     private int hoveredElement = -1;
 
-    public ChatMessageInfo(long id, ChatHudMessage message, int flags) {
-        this.id = id;
-        this.message = message;
-        this.flags = flags;
+    public ChatMessageInfo(MessageKey<?> key) {
+        this.key = key;
     }
 
-    public long getId() {
-        return id;
+    public MessageKey<?> getKey() {
+        return key;
     }
 
-    public ChatHudMessage getMessage() {
-        return message;
+    public ChatHudMessage getHudMessage() {
+        return hudMessage;
     }
 
-    public void setMessage(ChatHudMessage message) {
-        this.message = message;
+    public void setHudMessage(ChatHudMessage hudMessage) {
+        this.hudMessage = hudMessage;
     }
 
-    public int getFlags() {
-        return flags;
+    public int getPermissions() {
+        return permissions;
+    }
+
+    public void setPermissions(int permissions) {
+        this.permissions = permissions;
     }
 
     public boolean isEditable() {
-        return (flags & McDiscordChat.MESSAGE_EDITABLE) != 0;
+        return (permissions & McDiscordChat.MESSAGE_EDITABLE) != 0;
     }
 
     public boolean isDeletable() {
-        return (flags & McDiscordChat.MESSAGE_DELETABLE) != 0;
+        return (permissions & McDiscordChat.MESSAGE_DELETABLE) != 0;
     }
 
     public int getHoveredElement() {

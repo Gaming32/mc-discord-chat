@@ -4,12 +4,11 @@ import com.mojang.brigadier.context.StringRange;
 import com.mojang.brigadier.suggestion.Suggestion;
 import com.mojang.brigadier.suggestion.Suggestions;
 import io.github.gaming32.mcdiscordchat.McDiscordChat;
+import io.github.gaming32.mcdiscordchat.MessageKey;
 import io.github.gaming32.mcdiscordchat.mixin.client.ChatHudAccessor;
 import io.github.gaming32.mcdiscordchat.mixin.client.ChatScreenAccessor;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -21,10 +20,13 @@ import net.minecraft.client.gui.hud.ChatMessageTag;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
 
 @Environment(EnvType.CLIENT)
@@ -36,8 +38,8 @@ public class McDiscordChatClient implements ClientModInitializer {
     public static CompletableFuture<Suggestions> pingSuggestionsFuture;
     public static final Map<String, Text> pingSuggestionsDisplays = new HashMap<>();
 
-    private static final Long2ObjectMap<ChatMessageInfo> CHAT_MESSAGES = new Long2ObjectOpenHashMap<>();
-    public static final Map<ChatHudMessage, ChatMessageInfo> CHAT_MESSAGES_GUI_LOOKUP = new HashMap<>();
+    private static final Map<MessageKey<?>, ChatMessageInfo> CHAT_MESSAGES = new HashMap<>();
+    public static final Map<ChatHudMessage, ChatMessageInfo> CHAT_MESSAGES_GUI_LOOKUP = new WeakHashMap<>();
     @Nullable
     public static ChatMessageInfo hoveredChatMessage;
 
@@ -73,9 +75,15 @@ public class McDiscordChatClient implements ClientModInitializer {
 
         registerGlobalReceiver(McDiscordChat.CHAT_DISCORD_MESSAGE, (client, handler, buf, responseSender) -> {
             final Text message = buf.readText();
+            final MessageKey<?> messageKey = MessageKey.read(buf);
+            final int permissions = buf.readVarInt();
             client.inGameHud.getChatHud().addMessage(message, null, DISCORD_TAG);
-            client.getChatNarratorManager().narrate(message);
-            applyMessageInfo(client, buf);
+//            client.getChatNarratorManager().narrate(message);
+            final ChatHudMessage hudMessage = getChatHudMessages(client).get(0);
+            final ChatMessageInfo messageInfo = getChatMessageInfo(messageKey);
+            messageInfo.setPermissions(permissions);
+            messageInfo.setHudMessage(hudMessage);
+            CHAT_MESSAGES_GUI_LOOKUP.put(hudMessage, messageInfo);
         });
 
         registerGlobalReceiver(McDiscordChat.CHAT_PING_AUTOCOMPLETE, (client, handler, buf, responseSender) -> {
@@ -90,37 +98,32 @@ public class McDiscordChatClient implements ClientModInitializer {
             pingSuggestionsFuture = null;
         });
 
-        registerGlobalReceiver(McDiscordChat.CHAT_MESSAGE_ID, (client, handler, buf, responseSender) ->
-            applyMessageInfo(client, buf)
-        );
-
         registerGlobalReceiver(McDiscordChat.CHAT_MESSAGE_EDIT, (client, handler, buf, responseSender) -> {
-            final long id = buf.readVarLong();
+            final MessageKey<?> key = MessageKey.read(buf);
             final Text updatedContents = buf.readText();
-            final ChatMessageInfo message = CHAT_MESSAGES.get(id);
-            if (message == null) return;
+            final ChatMessageInfo message = getChatMessageInfo(key);
             final ChatHudAccessor chatHud = (ChatHudAccessor)client.inGameHud.getChatHud();
-            final int index = chatHud.getMessages().indexOf(message.getMessage());
+            final int index = chatHud.getMessages().indexOf(message.getHudMessage());
             if (index == -1) return;
             final ChatHudMessage newMessage = new ChatHudMessage(
-                message.getMessage().addedTime(),
+                message.getHudMessage().addedTime(),
                 updatedContents,
                 null,
-                message.getMessage().tag()
+                message.getHudMessage().tag()
             );
             chatHud.getMessages().set(index, newMessage);
             chatHud.refreshMessageRenders();
-            CHAT_MESSAGES_GUI_LOOKUP.remove(message.getMessage());
+            CHAT_MESSAGES_GUI_LOOKUP.remove(message.getHudMessage());
             CHAT_MESSAGES_GUI_LOOKUP.put(newMessage, message);
-            message.setMessage(newMessage);
+            message.setHudMessage(newMessage);
         });
 
         registerGlobalReceiver(McDiscordChat.CHAT_MESSAGE_REMOVE, (client, handler, buf, responseSender) -> {
-            final long id = buf.readVarLong();
-            final ChatMessageInfo message = CHAT_MESSAGES.remove(id);
+            final MessageKey<?> key = MessageKey.read(buf);
+            final ChatMessageInfo message = CHAT_MESSAGES.remove(key);
             if (message == null) return;
             final ChatHudAccessor chatHud = (ChatHudAccessor)client.inGameHud.getChatHud();
-            if (chatHud.getMessages().remove(message.getMessage())) {
+            if (chatHud.getMessages().remove(message.getHudMessage())) {
                 chatHud.refreshMessageRenders();
             }
         });
@@ -130,6 +133,10 @@ public class McDiscordChatClient implements ClientModInitializer {
                 chatScreen.getChatField().setText(buf.readString());
             }
         });
+
+        registerGlobalReceiver(McDiscordChat.CHAT_MESSAGE_PERMISSIONS, (client, handler, buf, responseSender) ->
+            getChatMessageInfo(MessageKey.read(buf)).setPermissions(buf.readVarInt())
+        );
 
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             CHAT_MESSAGES.clear();
@@ -172,12 +179,12 @@ public class McDiscordChatClient implements ClientModInitializer {
         EMOJI_NAMES.put(buf.readString(), Character.toString(buf.readVarInt()));
     }
 
-    private static void applyMessageInfo(MinecraftClient client, PacketByteBuf buf) {
-        final long id = buf.readVarLong();
-        final int flags = buf.readVarInt();
-        final ChatHudMessage message = ((ChatHudAccessor)client.inGameHud.getChatHud()).getMessages().get(0);
-        final ChatMessageInfo messageInfo = new ChatMessageInfo(id, message, flags);
-        CHAT_MESSAGES.put(id, messageInfo);
-        CHAT_MESSAGES_GUI_LOOKUP.put(message, messageInfo);
+    public static List<ChatHudMessage> getChatHudMessages(MinecraftClient client) {
+        return ((ChatHudAccessor)client.inGameHud.getChatHud()).getMessages();
+    }
+
+    @NotNull
+    public static ChatMessageInfo getChatMessageInfo(MessageKey<?> key) {
+        return CHAT_MESSAGES.computeIfAbsent(key, ChatMessageInfo::new);
     }
 }

@@ -40,18 +40,18 @@ public class MixinChatScreen implements MessageEditor {
             final ChatMessageInfo message = McDiscordChatClient.hoveredChatMessage;
             if (message == null || message.getHoveredElement() == 0) return true;
             if (message.getHoveredElement() == 1 && message.isEditable()) {
-                System.out.println("Edit " + message.getMessage());
+                System.out.println("Edit " + message.getHudMessage());
                 editingMessage = message;
                 oldMessage = chatField.getText();
 
                 final PacketByteBuf buf = PacketByteBufs.create();
-                buf.writeVarLong(message.getId());
+                message.getKey().write(buf);
                 ClientPlayNetworking.send(McDiscordChat.CHAT_MESSAGE_ORIGINAL, buf);
             } else {
-                McDiscordChat.LOGGER.info("Delete {} ({})", message.getId(), message.getMessage());
+                McDiscordChat.LOGGER.info("Delete {} ({})", message.getKey(), message.getHudMessage());
 
                 final PacketByteBuf buf = PacketByteBufs.create();
-                buf.writeVarLong(message.getId());
+                message.getKey().write(buf);
                 ClientPlayNetworking.send(McDiscordChat.CHAT_MESSAGE_REMOVE, buf);
             }
             return false;
@@ -70,7 +70,7 @@ public class MixinChatScreen implements MessageEditor {
         if (editingMessage == null) return;
 
         final PacketByteBuf buf = PacketByteBufs.create();
-        buf.writeVarLong(editingMessage.getId());
+        editingMessage.getKey().write(buf);
         buf.writeString(text);
         ClientPlayNetworking.send(McDiscordChat.CHAT_MESSAGE_EDIT, buf);
 

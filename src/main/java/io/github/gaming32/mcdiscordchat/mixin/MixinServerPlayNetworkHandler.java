@@ -16,6 +16,6 @@ public class MixinServerPlayNetworkHandler {
 
     @Inject(method = "m_csymlmvj", at = @At("HEAD"))
     private void identifyMessage(SignedChatMessage signedChatMessage, CallbackInfo ci) {
-        McDiscordChat.linkMessageWithId(player, signedChatMessage);
+        McDiscordChat.broadcastMessagePermissions(player, signedChatMessage);
     }
 }

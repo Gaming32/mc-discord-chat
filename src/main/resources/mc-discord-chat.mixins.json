@@ -11,6 +11,7 @@
     "client.ChatScreenAccessor",
     "client.MixinChatHud",
     "client.MixinChatScreen",
+    "client.MixinClientChatListener",
     "client.MixinCommandSuggestor",
     "client.MixinCommandSuggestor$MixinSuggestionWindow",
     "client.MixinFontType",

@@ -82,12 +82,12 @@ public abstract class MixinChatHud {
             final ChatMessageInfo messageInfo = McDiscordChatClient.CHAT_MESSAGES_GUI_LOOKUP.get(lineToMessageMap.get(line));
             if (
                 messageInfo == null ||
-                messageInfo.getFlags() == 0 ||
-                messageToFirstLineMap.get(messageInfo.getMessage()) != line
+                messageInfo.getPermissions() == 0 ||
+                messageToFirstLineMap.get(messageInfo.getHudMessage()) != line
             ) continue;
             final int y = -i * lineHeight;
             final int textY = (int)(y + lineOffset);
-            final int buttonCount = Integer.bitCount(messageInfo.getFlags());
+            final int buttonCount = Integer.bitCount(messageInfo.getPermissions());
             final boolean lineHovered = mouseY >= y - lineHeight && mouseY < y;
             final boolean firstHovered = lineHovered && mouseX >= width + 8 && mouseX < width + 9 + lineHeight;
             final boolean secondHovered = lineHovered && mouseX >= width + 9 + lineHeight && mouseX <= width + 10 + 2 * lineHeight;
@@ -128,7 +128,7 @@ public abstract class MixinChatHud {
                 final int x = client.textRenderer.drawWithShadow(matrices, "Editing ", lineHeight + 4, textY, foregroundColor);
                 client.textRenderer.drawWithShadow(
                     matrices,
-                    messageToFirstLineMap.get(editor.getEditingMessage().getMessage()).content(),
+                    messageToFirstLineMap.get(editor.getEditingMessage().getHudMessage()).content(),
                     x, textY, foregroundColor
                 );
                 matrices.pop();
