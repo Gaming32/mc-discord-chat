@@ -65,6 +65,7 @@ public abstract class MixinChatHud {
 
         final int lineHeight = getLineHeight();
         final double lineSpacing = client.options.getChatLineSpacing().get();
+        final double buttonOffset = 9.0 * lineSpacing;
         final double lineOffset = -8.0 * (lineSpacing + 1.0) + 4.0 * lineSpacing;
 
         final int foregroundColor = (int)(255.0 * client.options.getChatOpacity().get() * 0.9 + 0.1) << 24 | 0xffffff;
@@ -72,8 +73,8 @@ public abstract class MixinChatHud {
         final int backgroundNotHovered = backgroundAlpha << 24;
         final int backgroundHovered = backgroundNotHovered | 0x808080;
 
-        final int mouseX = (int)((client.mouse.getX() * (double)client.getWindow().getScaledWidth() / (double)client.getWindow().getWidth() + 4 - lineHeight) / chatScale);
-        final int mouseY = (int)(client.mouse.getY() * (double)client.getWindow().getScaledHeight() / (double)client.getWindow().getHeight()) - client.getWindow().getScaledHeight() + 48 - lineHeight;
+        final int mouseX = (int)((client.mouse.getX() * (double)client.getWindow().getScaledWidth() / (double)client.getWindow().getWidth() + 4 - lineHeight + buttonOffset) / chatScale);
+        final int mouseY = (int)((client.mouse.getY() * (double)client.getWindow().getScaledHeight() / (double)client.getWindow().getHeight() - client.getWindow().getScaledHeight() + 48 - lineHeight + buttonOffset) / chatScale);
 
         final int visibleLineCount = getVisibleLineCount();
         McDiscordChatClient.hoveredChatMessage = null;
