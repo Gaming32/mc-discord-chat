@@ -717,34 +717,8 @@ public class McDiscordChat implements ModInitializer {
                     }
                 }
             } else if (c == '@') {
-                int spaceIndex = text.indexOf(' ', i + 1);
-                if (spaceIndex == -1) {
-                    spaceIndex = text.length();
-                }
-                String username = text.substring(i + 1, spaceIndex);
-                ServerPlayerEntity player = currentServer.getPlayerManager().getPlayer(username);
-                while (player == null && username.length() > 1) {
-                    username = username.substring(0, username.length() - 1);
-                    player = currentServer.getPlayerManager().getPlayer(username);
-                }
-                if (player != null) {
-                    result.append(current.toString());
-                    current.setLength(0);
-                    final Text displayName = player.getDisplayName();
-                    Style style = displayName.getStyle();
-                    if (style.getColor() == null) {
-                        style = style.withColor(0x7d92dd);
-                    }
-                    result.append(
-                        Text.translatable(
-                            "chat.mention.minecraft",
-                            displayName,
-                            player.getEntityName()
-                        ).setStyle(style)
-                    );
-                    i += username.length() + 1;
-                    continue;
-                }
+                String username;
+                // Search for Discord user
                 if (jda != null) {
                     final TextChannel channel = jda.getTextChannelById(CONFIG.getMessageChannel());
                     final int poundIndex = text.indexOf('#', i + 1);
@@ -780,6 +754,39 @@ public class McDiscordChat implements ModInitializer {
                             continue;
                         }
                     }
+                }
+                // Search for Minecraft player
+                int spaceIndex = text.indexOf(' ', i + 1);
+                if (spaceIndex == -1) {
+                    spaceIndex = text.length();
+                }
+                username = text.substring(i + 1, spaceIndex);
+                ServerPlayerEntity player = currentServer.getPlayerManager().getPlayer(username);
+                while (player == null && username.length() > 1) {
+                    username = username.substring(0, username.length() - 1);
+                    player = currentServer.getPlayerManager().getPlayer(username);
+                }
+                if (player != null) {
+                    result.append(current.toString());
+                    current.setLength(0);
+                    final Text displayName = player.getDisplayName();
+                    Style style = displayName.getStyle();
+                    if (style.getColor() == null) {
+                        style = style.withColor(0x7d92dd);
+                    }
+                    result.append(
+                        Text.translatable(
+                            "chat.mention.minecraft",
+                            displayName,
+                            player.getEntityName()
+                        ).setStyle(style)
+                    );
+                    i += username.length() + 1;
+                    continue;
+                }
+                // Search for Discord role
+                if (jda != null) {
+                    final TextChannel channel = jda.getTextChannelById(CONFIG.getMessageChannel());
                     if (channel != null) {
                         final List<Role> roles = getMatchingRoles(channel.getGuild(), text, i);
                         if (!roles.isEmpty()) {
