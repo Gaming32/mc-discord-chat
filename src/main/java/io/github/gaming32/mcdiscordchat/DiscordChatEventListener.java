@@ -81,19 +81,18 @@ public class DiscordChatEventListener extends ListenerAdapter {
     }
 
     private static Map.Entry<Text, Text> formatDiscordMessage(Member author, Message message) {
-        final MutableText text = Text.empty();
-        text.append(Text.literal("<"));
-        text.append(
-            Text.literal(author.getEffectiveName())
-                .styled(style -> {
-                    final int color = author.getColorRaw();
-                    if (color != Role.DEFAULT_COLOR_RAW) {
-                        style = style.withColor(color);
-                    }
-                    return McDiscordChat.addUserTooltip(style, message.getAuthor(), author);
-                })
-        );
-        text.append(Text.literal("> "));
+        final MutableText text = Text.empty()
+            .append(Text.literal("<"))
+            .append(
+                Text.literal(author.getEffectiveName())
+                    .styled(style -> {
+                        final int color = author.getColorRaw();
+                        if (color != Role.DEFAULT_COLOR_RAW) {
+                            style = style.withColor(color);
+                        }
+                        return McDiscordChat.addUserTooltip(style, message.getAuthor(), author);
+                    })
+            ).append(Text.literal("> "));
         if (!message.getEmbeds().isEmpty() || !message.getAttachments().isEmpty()) {
             text.append(Text.literal("[\u2709] ").styled(style -> style.withColor(0xddd605)));
         }
