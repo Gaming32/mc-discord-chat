@@ -1,8 +1,8 @@
 package io.github.gaming32.mcdiscordchat.client;
 
 import io.github.gaming32.mcdiscordchat.util.ColorUtil;
-import net.minecraft.text.Text;
-import net.minecraft.text.TextColor;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.TextColor;
 
 public class SuggestorUtil {
     public static Object getSuggestionText(String typedText, String text, int color) {
@@ -16,10 +16,10 @@ public class SuggestorUtil {
                 return emoji + ' ' + cutText;
             }
         }
-        Text pingText = McDiscordChatClient.pingSuggestionsDisplays.get(text);
+        Component pingText = McDiscordChatClient.pingSuggestionsDisplays.get(text);
         if (pingText != null) {
             if (!ColorUtil.isGrayscale(color)) {
-                pingText = pingText.copy().styled(style -> style.withColor((TextColor)null));
+                pingText = pingText.copy().withStyle(style -> style.withColor((TextColor)null));
             }
             return pingText;
         }

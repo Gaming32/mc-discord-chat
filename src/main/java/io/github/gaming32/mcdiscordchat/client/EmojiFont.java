@@ -1,16 +1,17 @@
 package io.github.gaming32.mcdiscordchat.client;
 
-import com.mojang.blaze3d.font.Font;
-import com.mojang.blaze3d.font.Glyph;
+import com.mojang.blaze3d.font.GlyphInfo;
+import com.mojang.blaze3d.font.GlyphProvider;
 import com.mojang.blaze3d.font.SheetGlyphInfo;
-import com.mojang.blaze3d.texture.NativeImage;
+import com.mojang.blaze3d.platform.NativeImage;
 import io.github.gaming32.mcdiscordchat.McDiscordChat;
 import io.github.gaming32.mcdiscordchat.util.IntRange;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntSet;
-import net.minecraft.client.font.GlyphRenderer;
-import net.minecraft.client.font.SpecialFontGlyph;
+import net.minecraft.client.gui.font.glyphs.BakedGlyph;
+import net.minecraft.client.gui.font.glyphs.SpecialGlyphs;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
@@ -18,41 +19,43 @@ import java.io.InputStream;
 import java.net.URL;
 import java.util.function.Function;
 
-public class EmojiFont implements Font {
-    private final Int2ObjectMap<Glyph> glyphs = new Int2ObjectOpenHashMap<>();
+public class EmojiFont implements GlyphProvider {
+    private final Int2ObjectMap<GlyphInfo> glyphs = new Int2ObjectOpenHashMap<>();
 
+    @NotNull
     @Override
-    public IntSet getProvidedGlyphs() {
+    public IntSet getSupportedGlyphs() {
         return IntRange.inclusiveInclusive(McDiscordChat.PUA_FIRST, McDiscordChat.PUA_LAST);
     }
 
     @Nullable
     @Override
-    public Glyph getGlyph(int codePoint) {
+    public GlyphInfo getGlyph(int codePoint) {
         if (codePoint == McDiscordChat.UNKNOWN_EMOJI_CP) {
-            return SpecialFontGlyph.MISSING;
+            return SpecialGlyphs.MISSING;
         }
         if (codePoint < McDiscordChat.PUA_FIRST || codePoint > McDiscordChat.PUA_LAST) {
             return null;
         }
-        return glyphs.computeIfAbsent(codePoint, cp -> new Glyph() {
+        return glyphs.computeIfAbsent(codePoint, cp -> new GlyphInfo() {
             @Override
             public float getAdvance() {
                 return 7f;
             }
 
+            @NotNull
             @Override
-            public GlyphRenderer bake(Function<SheetGlyphInfo, GlyphRenderer> function) {
+            public BakedGlyph bake(Function<SheetGlyphInfo, BakedGlyph> function) {
                 return function.apply(new SheetGlyphInfo() {
                     NativeImage image;
 
                     @Override
-                    public int getWidth() {
+                    public int getPixelWidth() {
                         return 64;
                     }
 
                     @Override
-                    public int getHeight() {
+                    public int getPixelHeight() {
                         return 64;
                     }
 

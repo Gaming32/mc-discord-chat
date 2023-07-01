@@ -1,6 +1,6 @@
 plugins {
     id("fabric-loom") version "1.0.12"
-    id("io.github.juuxel.loom-quiltflower") version "1.8.0"
+    id("io.github.juuxel.loom-quiltflower") version "1.10.0"
     `maven-publish`
 }
 
@@ -18,6 +18,9 @@ repositories {
     mavenCentral()
     maven("https://maven.quiltmc.org/repository/release")
     maven("https://maven.quiltmc.org/repository/snapshot")
+    maven("https://maven.parchmentmc.org") {
+        name = "ParchmentMC"
+    }
 }
 
 dependencies {
@@ -26,8 +29,7 @@ dependencies {
     @Suppress("UnstableApiUsage")
     mappings(loom.layered {
         officialMojangMappings()
-        mappings(file("mappings/quilt-mappings-1.19.2+build.local-intermediary-v2.jar"))
-//        mappings("org.quiltmc:quilt-mappings:${project.quilt_mappings}:intermediary-v2")
+        parchment("org.parchmentmc.data:parchment-1.19.2:2022.11.27@zip")
     })
     modImplementation("net.fabricmc:fabric-loader:$fabricLoaderVersion")
 

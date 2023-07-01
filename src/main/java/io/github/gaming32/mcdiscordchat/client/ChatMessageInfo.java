@@ -2,11 +2,11 @@ package io.github.gaming32.mcdiscordchat.client;
 
 import io.github.gaming32.mcdiscordchat.McDiscordChat;
 import io.github.gaming32.mcdiscordchat.MessageKey;
-import net.minecraft.client.gui.hud.ChatHudMessage;
+import net.minecraft.client.GuiMessage;
 
 public final class ChatMessageInfo {
     private final MessageKey<?> key;
-    private ChatHudMessage hudMessage;
+    private GuiMessage hudMessage;
     private int permissions;
     private int hoveredElement = -1;
 
@@ -18,11 +18,11 @@ public final class ChatMessageInfo {
         return key;
     }
 
-    public ChatHudMessage getHudMessage() {
+    public GuiMessage getHudMessage() {
         return hudMessage;
     }
 
-    public void setHudMessage(ChatHudMessage hudMessage) {
+    public void setHudMessage(GuiMessage hudMessage) {
         this.hudMessage = hudMessage;
     }
 

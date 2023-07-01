@@ -1,64 +1,65 @@
 package io.github.gaming32.mcdiscordchat.util;
 
-import net.minecraft.text.Text;
-import net.minecraft.text.component.*;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.ComponentContents;
+import net.minecraft.network.chat.contents.*;
 
 public abstract class TextVisitor {
-    public final void visit(Text text) {
-        final TextComponent component = text.asComponent();
+    public final void visit(Component text) {
+        final ComponentContents component = text.getContents();
         if (!visitGeneric(text, component)) return;
-        if (component instanceof LiteralComponent literal) {
+        if (component instanceof LiteralContents literal) {
             if (!visitLiteral(text, literal)) return;
-        } else if (component instanceof TranslatableComponent translatable) {
+        } else if (component instanceof TranslatableContents translatable) {
             if (!visitTranslatable(text, translatable)) return;
-        } else if (component instanceof SelectorComponent selector) {
+        } else if (component instanceof SelectorContents selector) {
             if (!visitSelector(text, selector)) return;
-        } else if (component instanceof ScoreComponent score) {
+        } else if (component instanceof ScoreContents score) {
             if (!visitScore(text, score)) return;
-        } else if (component instanceof KeybindComponent keybind) {
+        } else if (component instanceof KeybindContents keybind) {
             if (!visitKeybind(text, keybind)) return;
-        } else if (component instanceof NbtComponent nbt) {
+        } else if (component instanceof NbtContents nbt) {
             if (!visitNbt(text, nbt)) return;
         }
         if (!postVisitGeneric(text, component)) return;
-        for (final Text sibling : text.getSiblings()) {
+        for (final Component sibling : text.getSiblings()) {
             visit(sibling);
         }
     }
 
-    protected boolean visitGeneric(Text text, TextComponent component) {
+    protected boolean visitGeneric(Component text, ComponentContents component) {
         return true;
     }
 
-    protected boolean postVisitGeneric(Text text, TextComponent component) {
+    protected boolean postVisitGeneric(Component text, ComponentContents component) {
         return true;
     }
 
-    protected boolean visitLiteral(Text text, LiteralComponent component) {
+    protected boolean visitLiteral(Component text, LiteralContents component) {
         return true;
     }
 
-    protected boolean visitTranslatable(Text text, TranslatableComponent component) {
+    protected boolean visitTranslatable(Component text, TranslatableContents component) {
         return true;
     }
 
-    protected boolean visitSelector(Text text, SelectorComponent component) {
+    protected boolean visitSelector(Component text, SelectorContents component) {
         return true;
     }
 
-    protected boolean visitScore(Text text, ScoreComponent component) {
+    protected boolean visitScore(Component text, ScoreContents component) {
         return true;
     }
 
-    protected boolean visitKeybind(Text text, KeybindComponent component) {
+    protected boolean visitKeybind(Component text, KeybindContents component) {
         return true;
     }
 
-    protected boolean visitNbt(Text text, NbtComponent component) {
+    protected boolean visitNbt(Component text, NbtContents component) {
         return true;
     }
 
-    public static void walk(Text text, TextVisitor visitor) {
+    public static void walk(Component text, TextVisitor visitor) {
         visitor.visit(text);
     }
 }

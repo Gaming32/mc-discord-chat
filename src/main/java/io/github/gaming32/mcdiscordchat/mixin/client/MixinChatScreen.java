@@ -7,10 +7,10 @@ import io.github.gaming32.mcdiscordchat.client.MessageEditor;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
-import net.minecraft.client.gui.screen.ChatScreen;
-import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.network.PacketByteBuf;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.screens.ChatScreen;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.FriendlyByteBuf;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -21,7 +21,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(ChatScreen.class)
 public class MixinChatScreen implements MessageEditor {
-    @Shadow protected TextFieldWidget chatField;
+    @Shadow protected EditBox input;
     @Unique
     private ChatMessageInfo editingMessage;
     @Unique
@@ -34,7 +34,7 @@ public class MixinChatScreen implements MessageEditor {
         ScreenMouseEvents.allowMouseClick((Screen)(Object)this).register((screen, mouseX, mouseY, button) -> {
             if (hoveringCancelEdit) {
                 editingMessage = null;
-                chatField.setText(oldMessage);
+                input.setValue(oldMessage);
                 return false;
             }
             final ChatMessageInfo message = McDiscordChatClient.hoveredChatMessage;
@@ -42,15 +42,15 @@ public class MixinChatScreen implements MessageEditor {
             if (message.getHoveredElement() == 1 && message.isEditable()) {
                 System.out.println("Edit " + message.getHudMessage());
                 editingMessage = message;
-                oldMessage = chatField.getText();
+                oldMessage = input.getValue();
 
-                final PacketByteBuf buf = PacketByteBufs.create();
+                final FriendlyByteBuf buf = PacketByteBufs.create();
                 message.getKey().write(buf);
                 ClientPlayNetworking.send(McDiscordChat.CHAT_MESSAGE_ORIGINAL, buf);
             } else {
                 McDiscordChat.LOGGER.info("Delete {} ({})", message.getKey(), message.getHudMessage());
 
-                final PacketByteBuf buf = PacketByteBufs.create();
+                final FriendlyByteBuf buf = PacketByteBufs.create();
                 message.getKey().write(buf);
                 ClientPlayNetworking.send(McDiscordChat.CHAT_MESSAGE_REMOVE, buf);
             }
@@ -62,20 +62,20 @@ public class MixinChatScreen implements MessageEditor {
         method = "handleChatInput",
         at = @At(
             value = "INVOKE",
-            target = "Lnet/minecraft/client/gui/hud/ChatHud;addToMessageHistory(Ljava/lang/String;)V"
+            target = "Lnet/minecraft/client/gui/components/ChatComponent;addRecentChat(Ljava/lang/String;)V"
         ),
         cancellable = true
     )
     private void confirmEdit(String text, boolean addToHistory, CallbackInfoReturnable<Boolean> cir) {
         if (editingMessage == null) return;
 
-        final PacketByteBuf buf = PacketByteBufs.create();
+        final FriendlyByteBuf buf = PacketByteBufs.create();
         editingMessage.getKey().write(buf);
-        buf.writeString(text);
+        buf.writeUtf(text);
         ClientPlayNetworking.send(McDiscordChat.CHAT_MESSAGE_EDIT, buf);
 
         editingMessage = null;
-        chatField.setText(oldMessage);
+        input.setValue(oldMessage);
 
         cir.setReturnValue(false);
     }

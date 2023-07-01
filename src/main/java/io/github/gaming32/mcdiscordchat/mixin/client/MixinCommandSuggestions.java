@@ -1,5 +1,6 @@
 package io.github.gaming32.mcdiscordchat.mixin.client;
 
+import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import io.github.gaming32.mcdiscordchat.McDiscordChat;
@@ -7,13 +8,12 @@ import io.github.gaming32.mcdiscordchat.client.McDiscordChatClient;
 import io.github.gaming32.mcdiscordchat.client.SuggestorUtil;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.screen.CommandSuggestor;
-import net.minecraft.client.gui.widget.TextFieldWidget;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.network.PacketByteBuf;
-import net.minecraft.text.Text;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.components.CommandSuggestions;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.Component;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -26,33 +26,33 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 
-@Mixin(CommandSuggestor.class)
-public abstract class MixinCommandSuggestor {
-    @Shadow @Final TextFieldWidget textField;
+@Mixin(CommandSuggestions.class)
+public abstract class MixinCommandSuggestions {
+    @Shadow @Final EditBox input;
 
     @Shadow private @Nullable CompletableFuture<Suggestions> pendingSuggestions;
 
-    @Shadow @Final MinecraftClient client;
+    @Shadow @Final Minecraft minecraft;
 
     @Shadow public abstract void showSuggestions(boolean narrateFirstSuggestion);
 
     @Inject(
-        method = "refresh",
+        method = "updateCommandInfo",
         at = @At(
             value = "INVOKE",
-            target = "Lnet/minecraft/client/gui/screen/CommandSuggestor;getLastPlayerNameStart(Ljava/lang/String;)I"
+            target = "Lnet/minecraft/client/gui/components/CommandSuggestions;getLastWordIndex(Ljava/lang/String;)I"
         ),
         cancellable = true
     )
     private void customSuggestions(CallbackInfo ci) {
-        final String text = textField.getText().substring(0, textField.getCursor());
+        final String text = input.getValue().substring(0, input.getCursorPosition());
         emojiSuggestions(ci, text);
         if (!ci.isCancelled()) {
             pingSuggestions(ci, text);
         }
         if (ci.isCancelled() && pendingSuggestions != null) {
             pendingSuggestions.thenRun(() -> {
-                if (pendingSuggestions.isDone() && client.options.getCommandSuggestions().get()) {
+                if (pendingSuggestions.isDone() && minecraft.options.autoSuggestions().get()) {
                     showSuggestions(false);
                 }
             });
@@ -86,9 +86,9 @@ public abstract class MixinCommandSuggestor {
         if (text.indexOf('@') == -1) return;
         ci.cancel();
         pendingSuggestions = McDiscordChatClient.pingSuggestionsFuture = new CompletableFuture<>();
-        final PacketByteBuf buf = PacketByteBufs.create();
+        final FriendlyByteBuf buf = PacketByteBufs.create();
         buf.writeVarInt(McDiscordChatClient.pingSuggestionsTransactionId++);
-        buf.writeString(text);
+        buf.writeUtf(text);
         if (ClientPlayNetworking.canSend(McDiscordChat.CHAT_PING_AUTOCOMPLETE)) {
             ClientPlayNetworking.send(McDiscordChat.CHAT_PING_AUTOCOMPLETE, buf);
         }
@@ -98,34 +98,34 @@ public abstract class MixinCommandSuggestor {
         method = "showSuggestions",
         at = @At(
             value = "INVOKE",
-            target = "Lnet/minecraft/client/font/TextRenderer;getWidth(Ljava/lang/String;)I"
+            target = "Lnet/minecraft/client/gui/Font;width(Ljava/lang/String;)I"
         )
     )
-    private int getSuggestionText(TextRenderer instance, String text) {
-        final Object useText = SuggestorUtil.getSuggestionText(textField.getText(), text, 0xffffff);
+    private int getSuggestionText(Font instance, String text) {
+        final Object useText = SuggestorUtil.getSuggestionText(input.getValue(), text, 0xffffff);
         if (useText instanceof String) {
-            return instance.getWidth((String)useText);
+            return instance.width((String)useText);
         }
-        return instance.getWidth((Text)useText);
+        return instance.width((Component)useText);
     }
 
-    @Mixin(CommandSuggestor.SuggestionWindow.class)
-    public static class MixinSuggestionWindow {
-        @Shadow @Final private String typedText;
+    @Mixin(CommandSuggestions.SuggestionsList.class)
+    public static class MixinSuggestionsList {
+        @Shadow @Final private String originalContents;
 
         @Redirect(
             method = "render",
             at = @At(
                 value = "INVOKE",
-                target = "Lnet/minecraft/client/font/TextRenderer;drawWithShadow(Lnet/minecraft/client/util/math/MatrixStack;Ljava/lang/String;FFI)I"
+                target = "Lnet/minecraft/client/gui/Font;drawShadow(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/lang/String;FFI)I"
             )
         )
-        private int drawCustomSuggestion(TextRenderer instance, MatrixStack matrices, String text, float x, float y, int color) {
-            final Object useText = SuggestorUtil.getSuggestionText(typedText, text, color);
+        private int drawCustomSuggestion(Font instance, PoseStack matrices, String text, float x, float y, int color) {
+            final Object useText = SuggestorUtil.getSuggestionText(originalContents, text, color);
             if (useText instanceof String) {
-                return instance.drawWithShadow(matrices, (String)useText, x, y, color);
+                return instance.drawShadow(matrices, (String)useText, x, y, color);
             }
-            return instance.drawWithShadow(matrices, (Text)useText, x, y, color);
+            return instance.drawShadow(matrices, (Component)useText, x, y, color);
         }
     }
 }

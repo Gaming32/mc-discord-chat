@@ -1,8 +1,8 @@
 package io.github.gaming32.mcdiscordchat;
 
-import net.minecraft.network.PacketByteBuf;
-import net.minecraft.network.message.MessageSignature;
-import net.minecraft.network.message.SignedChatMessage;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.MessageSignature;
+import net.minecraft.network.chat.PlayerChatMessage;
 import org.jetbrains.annotations.NotNull;
 
 import java.time.Instant;
@@ -11,16 +11,16 @@ import java.util.Objects;
 public final class MessageKey<T> {
     public enum Type {
         SIGNATURE(MessageSignature::new),
-        TIMESTAMP(PacketByteBuf::readInstant),
+        TIMESTAMP(FriendlyByteBuf::readInstant),
         DISCORD(buf -> Long.toString(buf.readLong()));
 
-        private final PacketByteBuf.Reader<?> reader;
+        private final FriendlyByteBuf.Reader<?> reader;
 
-        Type(PacketByteBuf.Reader<?> reader) {
+        Type(FriendlyByteBuf.Reader<?> reader) {
             this.reader = reader;
         }
 
-        public PacketByteBuf.Reader<?> getReader() {
+        public FriendlyByteBuf.Reader<?> getReader() {
             return reader;
         }
     }
@@ -54,22 +54,22 @@ public final class MessageKey<T> {
         return ofDiscord(Long.toUnsignedString(discordIdLong));
     }
 
-    public static MessageKey<?> ofMinecraft(SignedChatMessage message) {
-        if (message.headerSignature().m_slflbccb()) {
-            return ofTimestamp(message.getTimestamp());
+    public static MessageKey<?> ofMinecraft(PlayerChatMessage message) {
+        if (message.headerSignature().isEmpty()) {
+            return ofTimestamp(message.timeStamp());
         }
         return ofSignature(message.headerSignature());
     }
 
-    public static MessageKey<?> read(PacketByteBuf buf) {
-        final Type type = buf.readEnumConstant(Type.class);
+    public static MessageKey<?> read(FriendlyByteBuf buf) {
+        final Type type = buf.readEnum(Type.class);
         return new MessageKey<>(type, type.getReader().apply(buf));
     }
 
-    public void write(PacketByteBuf buf) {
-        buf.writeEnumConstant(type);
+    public void write(FriendlyByteBuf buf) {
+        buf.writeEnum(type);
         switch (type) {
-            case SIGNATURE -> ((MessageSignature)value).m_mpdsgmtj(buf);
+            case SIGNATURE -> ((MessageSignature)value).write(buf);
             case TIMESTAMP -> buf.writeInstant((Instant)value);
             case DISCORD -> buf.writeLong(Long.parseLong((String)value));
         }

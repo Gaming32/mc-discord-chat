@@ -33,20 +33,19 @@ import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.network.PacketByteBuf;
-import net.minecraft.network.message.SignedChatMessage;
+import net.minecraft.ChatFormatting;
+import net.minecraft.Util;
+import net.minecraft.core.Registry;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.*;
+import net.minecraft.network.chat.contents.LiteralContents;
+import net.minecraft.network.chat.contents.TranslatableContents;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.text.*;
-import net.minecraft.text.component.LiteralComponent;
-import net.minecraft.text.component.TranslatableComponent;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.Util;
-import net.minecraft.util.registry.Registry;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import org.jetbrains.annotations.Nullable;
 import org.quiltmc.json5.JsonWriter;
 import org.slf4j.Logger;
@@ -64,23 +63,23 @@ public class McDiscordChat implements ModInitializer {
     public static final String MOD_ID = "mc-discord-chat";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
-    public static final Identifier EMOJI_SYNC_CHARS = new Identifier(MOD_ID, "emoji/sync_chars");
-    public static final Identifier EMOJI_SYNC_CHAR = new Identifier(MOD_ID, "emoji/sync_char");
-    public static final Identifier EMOJI_SYNC_NAMES = new Identifier(MOD_ID, "emoji/sync_names");
-    public static final Identifier EMOJI_SYNC_NAME = new Identifier(MOD_ID, "emoji/sync_name");
-    public static final Identifier CHAT_DISCORD_MESSAGE = new Identifier(MOD_ID, "chat/discord_message");
-    public static final Identifier CHAT_PING_AUTOCOMPLETE = new Identifier(MOD_ID, "chat/ping_autocomplete");
-    public static final Identifier CHAT_MESSAGE_EDIT = new Identifier(MOD_ID, "chat/message_edit");
-    public static final Identifier CHAT_MESSAGE_REMOVE = new Identifier(MOD_ID, "chat/message_remove");
-    public static final Identifier CHAT_MESSAGE_ORIGINAL = new Identifier(MOD_ID, "chat/message_original");
-    public static final Identifier CHAT_MESSAGE_PERMISSIONS = new Identifier(MOD_ID, "chat/message_permissions");
+    public static final ResourceLocation EMOJI_SYNC_CHARS = new ResourceLocation(MOD_ID, "emoji/sync_chars");
+    public static final ResourceLocation EMOJI_SYNC_CHAR = new ResourceLocation(MOD_ID, "emoji/sync_char");
+    public static final ResourceLocation EMOJI_SYNC_NAMES = new ResourceLocation(MOD_ID, "emoji/sync_names");
+    public static final ResourceLocation EMOJI_SYNC_NAME = new ResourceLocation(MOD_ID, "emoji/sync_name");
+    public static final ResourceLocation CHAT_DISCORD_MESSAGE = new ResourceLocation(MOD_ID, "chat/discord_message");
+    public static final ResourceLocation CHAT_PING_AUTOCOMPLETE = new ResourceLocation(MOD_ID, "chat/ping_autocomplete");
+    public static final ResourceLocation CHAT_MESSAGE_EDIT = new ResourceLocation(MOD_ID, "chat/message_edit");
+    public static final ResourceLocation CHAT_MESSAGE_REMOVE = new ResourceLocation(MOD_ID, "chat/message_remove");
+    public static final ResourceLocation CHAT_MESSAGE_ORIGINAL = new ResourceLocation(MOD_ID, "chat/message_original");
+    public static final ResourceLocation CHAT_MESSAGE_PERMISSIONS = new ResourceLocation(MOD_ID, "chat/message_permissions");
 
-    public static final Identifier SMALL_FONT = new Identifier(MOD_ID, "small");
+    public static final ResourceLocation SMALL_FONT = new ResourceLocation(MOD_ID, "small");
 
     public static final int MESSAGE_EDITABLE = 0x1;
     public static final int MESSAGE_DELETABLE = 0x2;
 
-    public static final Identifier PING_SOUND_ID = new Identifier(MOD_ID, "ping");
+    public static final ResourceLocation PING_SOUND_ID = new ResourceLocation(MOD_ID, "ping");
     public static final SoundEvent PING_SOUND_EVENT = new SoundEvent(PING_SOUND_ID);
 
     public static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve(MOD_ID + ".json5");
@@ -132,10 +131,10 @@ public class McDiscordChat implements ModInitializer {
 
         ServerMessageEvents.CHAT_MESSAGE.register((message, sender, params) -> {
             final MessageKey<?> messageKey = MessageKey.ofMinecraft(message);
-            MESSAGE_AUTHORS.put(messageKey, sender.getUuid());
-            ORIGINAL_MESSAGES.put(messageKey, message.m_ckjuswtx().plain());
+            MESSAGE_AUTHORS.put(messageKey, sender.getUUID());
+            ORIGINAL_MESSAGES.put(messageKey, message.signedContent().plain());
 
-            final Text text = message.m_tfkcjptc();
+            final Component text = message.serverContent();
             executePings(text);
             if (chatWebhook != null) {
                 assert jda != null;
@@ -143,7 +142,7 @@ public class McDiscordChat implements ModInitializer {
                     new WebhookMessageBuilder()
                         .setContent(internalToDiscord(text))
                         .setUsername(sender.getDisplayName().getString())
-                        .setAvatarUrl("https://crafatar.com/renders/head/" + sender.getUuid() + "?overlay=true")
+                        .setAvatarUrl("https://crafatar.com/renders/head/" + sender.getUUID() + "?overlay=true")
                         .setAllowedMentions(getAllowedMentions())
                         .build()
                 ).thenAccept(discordMessage ->
@@ -170,7 +169,7 @@ public class McDiscordChat implements ModInitializer {
         );
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
-            PacketByteBuf buf = PacketByteBufs.create();
+            FriendlyByteBuf buf = PacketByteBufs.create();
             buf.writeVarInt(EMOJI_CHARS.size());
             for (final Long2IntMap.Entry entry : EMOJI_CHARS.long2IntEntrySet()) {
                 writeEmoji(buf, entry.getLongKey(), entry.getIntValue());
@@ -180,7 +179,7 @@ public class McDiscordChat implements ModInitializer {
             buf = PacketByteBufs.create();
             buf.writeVarInt(EMOJI_NAMES.size());
             for (final var entry : EMOJI_NAMES.entrySet()) {
-                buf.writeString(entry.getKey());
+                buf.writeUtf(entry.getKey());
                 if (entry.getValue() == BUILTIN_EMOJI_MARKER) {
                     buf.writeVarInt(EMOJI_SHORTCODES.get(entry.getKey()).codePointAt(0));
                 } else {
@@ -271,21 +270,21 @@ public class McDiscordChat implements ModInitializer {
 
         ServerPlayNetworking.registerGlobalReceiver(CHAT_PING_AUTOCOMPLETE, (server, player, handler, buf, responseSender) -> {
             final int transactionId = buf.readVarInt();
-            final String partialMessage = buf.readString();
+            final String partialMessage = buf.readUtf();
 
             final int lastAt = partialMessage.lastIndexOf('@');
 
             final SuggestionsBuilder suggestionsBuilder = new SuggestionsBuilder(partialMessage, lastAt + 1);
-            final Map<String, Text> results = new HashMap<>();
+            final Map<String, Component> results = new HashMap<>();
 
             if (lastAt == 0 || partialMessage.charAt(lastAt - 1) != '<') {
                 final String username = partialMessage.substring(lastAt + 1).toLowerCase(Locale.ROOT);
                 final int lastSpace = partialMessage.lastIndexOf(' ');
                 if (lastSpace < lastAt) {
-                    for (final ServerPlayerEntity otherPlayer : server.getPlayerManager().getPlayerList()) {
-                        if (otherPlayer.getEntityName().toLowerCase(Locale.ROOT).startsWith(username)) {
-                            if (results.putIfAbsent(otherPlayer.getEntityName(), otherPlayer.getDisplayName()) == null) {
-                                suggestionsBuilder.suggest(otherPlayer.getEntityName());
+                    for (final ServerPlayer otherPlayer : server.getPlayerList().getPlayers()) {
+                        if (otherPlayer.getScoreboardName().toLowerCase(Locale.ROOT).startsWith(username)) {
+                            if (results.putIfAbsent(otherPlayer.getScoreboardName(), otherPlayer.getDisplayName()) == null) {
+                                suggestionsBuilder.suggest(otherPlayer.getScoreboardName());
                             }
                         }
                     }
@@ -301,8 +300,8 @@ public class McDiscordChat implements ModInitializer {
                                 tag.toLowerCase(Locale.ROOT).startsWith(username) ||
                                     name.toLowerCase(Locale.ROOT).startsWith(username)
                             ) {
-                                final Text displayName = Text.literal(member.getEffectiveName())
-                                    .styled(style -> {
+                                final Component displayName = Component.literal(member.getEffectiveName())
+                                    .withStyle(style -> {
                                         if (member.getColorRaw() != Role.DEFAULT_COLOR_RAW) {
                                             style = style.withColor(member.getColorRaw());
                                         }
@@ -317,8 +316,8 @@ public class McDiscordChat implements ModInitializer {
                             if (!role.isMentionable()) continue;
                             final String name = role.getName();
                             if (name.toLowerCase(Locale.ROOT).startsWith(username)) {
-                                final Text displayName = Text.literal(role.getName())
-                                    .styled(style -> {
+                                final Component displayName = Component.literal(role.getName())
+                                    .withStyle(style -> {
                                         if (role.getColorRaw() != Role.DEFAULT_COLOR_RAW) {
                                             style = style.withColor(role.getColorRaw());
                                         }
@@ -334,14 +333,14 @@ public class McDiscordChat implements ModInitializer {
             }
 
             final Suggestions suggestions = suggestionsBuilder.build();
-            final PacketByteBuf response = PacketByteBufs.create();
+            final FriendlyByteBuf response = PacketByteBufs.create();
             response.writeVarInt(transactionId);
             response.writeVarInt(suggestions.getRange().getStart());
             response.writeVarInt(suggestions.getRange().getLength());
             response.writeCollection(suggestions.getList(), (buf2, suggestion) ->
-                buf2.writeString(suggestion.getText())
+                buf2.writeUtf(suggestion.getText())
             );
-            response.writeMap(results, PacketByteBuf::writeString, PacketByteBuf::writeText);
+            response.writeMap(results, FriendlyByteBuf::writeUtf, FriendlyByteBuf::writeComponent);
             responseSender.sendPacket(CHAT_PING_AUTOCOMPLETE, response);
         });
 
@@ -351,10 +350,10 @@ public class McDiscordChat implements ModInitializer {
             if (author == null) return;
             boolean hasPermission = false;
             if (author.equals(DISCORD_USER_UUID)) {
-                if (player.hasPermissionLevel(2) && CONFIG.areOpsDiscordModerators()) {
+                if (player.hasPermissions(2) && CONFIG.areOpsDiscordModerators()) {
                     hasPermission = true;
                 }
-            } else if (player.hasPermissionLevel(2) || author.equals(player.getUuid())) {
+            } else if (player.hasPermissions(2) || author.equals(player.getUUID())) {
                 hasPermission = true;
             }
             if (hasPermission) {
@@ -371,18 +370,18 @@ public class McDiscordChat implements ModInitializer {
         });
 
         ServerPlayNetworking.registerGlobalReceiver(CHAT_MESSAGE_ORIGINAL, (server, player, handler, buf, responseSender) -> {
-            final PacketByteBuf response = PacketByteBufs.create();
-            response.writeString(ORIGINAL_MESSAGES.get(MessageKey.read(buf)));
+            final FriendlyByteBuf response = PacketByteBufs.create();
+            response.writeUtf(ORIGINAL_MESSAGES.get(MessageKey.read(buf)));
             responseSender.sendPacket(CHAT_MESSAGE_ORIGINAL, response);
         });
 
         ServerPlayNetworking.registerGlobalReceiver(CHAT_MESSAGE_EDIT, (server, player, handler, buf, responseSender) -> {
             final MessageKey<?> messageKey = MessageKey.read(buf);
-            final String newContents = buf.readString();
+            final String newContents = buf.readUtf();
             final UUID author = MESSAGE_AUTHORS.get(messageKey);
-            if (author == null || !author.equals(player.getUuid())) return;
+            if (author == null || !author.equals(player.getUUID())) return;
             ORIGINAL_MESSAGES.put(messageKey, newContents);
-            ServerMessageDecoratorEvent.EVENT.invoker().decorate(player, Text.literal(newContents)).thenAccept(text -> {
+            ServerMessageDecoratorEvent.EVENT.invoker().decorate(player, Component.literal(newContents)).thenAccept(text -> {
                 if (chatWebhook != null) {
                     final String discordId = MC_TO_DISCORD_MESSAGES.get(messageKey);
                     if (discordId != null) {
@@ -390,15 +389,15 @@ public class McDiscordChat implements ModInitializer {
                     }
                 }
 
-                final PacketByteBuf response = PacketByteBufs.create();
+                final FriendlyByteBuf response = PacketByteBufs.create();
                 messageKey.write(response);
-                response.writeText(
-                    Text.translatable("chat.type.text", player.getDisplayName(), text)
-                        .append(Text.literal(" (edited)").styled(style ->
-                            style.withFormatting(Formatting.DARK_GRAY).withFont(McDiscordChat.SMALL_FONT)
+                response.writeComponent(
+                    Component.translatable("chat.type.text", player.getDisplayName(), text)
+                        .append(Component.literal(" (edited)").withStyle(style ->
+                            style.applyFormat(ChatFormatting.DARK_GRAY).withFont(McDiscordChat.SMALL_FONT)
                         ))
                 );
-                currentServer.getPlayerManager().sendToAll(ServerPlayNetworking.createS2CPacket(CHAT_MESSAGE_EDIT, response));
+                currentServer.getPlayerList().broadcastAll(ServerPlayNetworking.createS2CPacket(CHAT_MESSAGE_EDIT, response));
             });
         });
 
@@ -410,24 +409,24 @@ public class McDiscordChat implements ModInitializer {
     static String deleteMessage(MessageKey<?> messageKey) {
         final String discordId = MC_TO_DISCORD_MESSAGES.remove(messageKey);
         MESSAGE_AUTHORS.remove(messageKey);
-        final PacketByteBuf buf = PacketByteBufs.create();
+        final FriendlyByteBuf buf = PacketByteBufs.create();
         messageKey.write(buf);
-        McDiscordChat.currentServer.getPlayerManager().sendToAll(ServerPlayNetworking.createS2CPacket(
+        McDiscordChat.currentServer.getPlayerList().broadcastAll(ServerPlayNetworking.createS2CPacket(
             McDiscordChat.CHAT_MESSAGE_REMOVE, buf
         ));
         return discordId;
     }
 
-    public static void broadcastMessagePermissions(ServerPlayerEntity author, SignedChatMessage message) {
+    public static void broadcastMessagePermissions(ServerPlayer author, PlayerChatMessage message) {
         final MessageKey<?> messageKey = MessageKey.ofMinecraft(message);
-        for (final ServerPlayerEntity player : currentServer.getPlayerManager().getPlayerList()) {
+        for (final ServerPlayer player : currentServer.getPlayerList().getPlayers()) {
             if (ServerPlayNetworking.canSend(player, CHAT_MESSAGE_PERMISSIONS)) {
-                final PacketByteBuf buf = PacketByteBufs.create();
+                final FriendlyByteBuf buf = PacketByteBufs.create();
                 messageKey.write(buf);
                 final int permissions;
                 if (player == author) {
                     permissions = MESSAGE_EDITABLE | MESSAGE_DELETABLE;
-                } else if (player.hasPermissionLevel(2)) {
+                } else if (player.hasPermissions(2)) {
                     permissions = MESSAGE_DELETABLE;
                 } else {
                     permissions = 0;
@@ -451,12 +450,12 @@ public class McDiscordChat implements ModInitializer {
             );
     }
 
-    private static String internalToDiscord(Text internal) {
+    private static String internalToDiscord(Component internal) {
         final StringBuilder result = new StringBuilder();
         TextVisitor.walk(internal, new TextVisitor() {
             @Override
-            protected boolean visitLiteral(Text text, LiteralComponent component) {
-                component.literal().codePoints().forEach(cp -> {
+            protected boolean visitLiteral(Component text, LiteralContents component) {
+                component.text().codePoints().forEach(cp -> {
                     if (cp >= PUA_FIRST && cp <= PUA_LAST) {
                         final var discordInfo = EMOJI_CHARS_REVERSE.get(cp);
                         if (discordInfo != null) {
@@ -473,7 +472,7 @@ public class McDiscordChat implements ModInitializer {
             }
 
             @Override
-            protected boolean visitTranslatable(Text text, TranslatableComponent component) {
+            protected boolean visitTranslatable(Component text, TranslatableContents component) {
                 if (component.getKey().startsWith("chat.mention.discord")) {
                     result.append(component.getArgs()[1]);
                 } else {
@@ -513,24 +512,24 @@ public class McDiscordChat implements ModInitializer {
         }
     }
 
-    public static void executePings(Text message) {
-        for (final ServerPlayerEntity player : collectPings(message)) {
-            player.playSound(
+    public static void executePings(Component message) {
+        for (final ServerPlayer player : collectPings(message)) {
+            player.playNotifySound(
                 ServerPlayNetworking.canSend(player, CHAT_DISCORD_MESSAGE)
                     ? PING_SOUND_EVENT
-                    : SoundEvents.ENTITY_EXPERIENCE_ORB_PICKUP,
-                SoundCategory.AMBIENT, 0.5f, 1.5f
+                    : SoundEvents.EXPERIENCE_ORB_PICKUP,
+                SoundSource.AMBIENT, 0.5f, 1.5f
             );
         }
     }
 
-    public static Set<ServerPlayerEntity> collectPings(Text message) {
-        final Set<ServerPlayerEntity> pinged = new HashSet<>();
+    public static Set<ServerPlayer> collectPings(Component message) {
+        final Set<ServerPlayer> pinged = new HashSet<>();
         TextVisitor.walk(message, new TextVisitor() {
             @Override
-            protected boolean visitTranslatable(Text text, TranslatableComponent component) {
+            protected boolean visitTranslatable(Component text, TranslatableContents component) {
                 if (component.getKey().equals("chat.mention.minecraft")) {
-                    pinged.add(currentServer.getPlayerManager().getPlayer(component.getArgs()[1].toString()));
+                    pinged.add(currentServer.getPlayerList().getPlayerByName(component.getArgs()[1].toString()));
                     return false;
                 }
                 return true;
@@ -539,8 +538,8 @@ public class McDiscordChat implements ModInitializer {
         return pinged;
     }
 
-    public static Text parseEmojis(String text) {
-        final MutableText result = Text.empty();
+    public static Component parseEmojis(String text) {
+        final MutableComponent result = Component.empty();
         final StringBuilder current = new StringBuilder(text.length());
         int i = 0;
         while (i < text.length()) {
@@ -641,11 +640,11 @@ public class McDiscordChat implements ModInitializer {
                                                 roleColor = member.getColorRaw();
                                             }
                                             result.append(
-                                                Text.translatable(
+                                                Component.translatable(
                                                     "chat.mention.discord.custom",
                                                     displayName,
                                                     "<@" + mentionId + '>'
-                                                ).styled(style -> {
+                                                ).withStyle(style -> {
                                                     style = style.withColor(
                                                         roleColor == Role.DEFAULT_COLOR_RAW ? 0x7d92dd : roleColor
                                                     );
@@ -671,11 +670,11 @@ public class McDiscordChat implements ModInitializer {
                                                 roleColor = role.getColorRaw();
                                             }
                                             result.append(
-                                                Text.translatable(
+                                                Component.translatable(
                                                     "chat.mention.discord.custom",
                                                     displayName,
                                                     "<@&" + mentionId + '>'
-                                                ).styled(style -> style.withColor(
+                                                ).withStyle(style -> style.withColor(
                                                     roleColor == Role.DEFAULT_COLOR_RAW ? 0x7d92dd : roleColor
                                                 ))
                                             );
@@ -689,11 +688,11 @@ public class McDiscordChat implements ModInitializer {
                                                 displayName = "#" + mentionChannel.getName();
                                             }
                                             result.append(
-                                                Text.translatable(
+                                                Component.translatable(
                                                     "chat.mention.discord.custom",
                                                     displayName,
                                                     "<#" + mentionId + '>'
-                                                ).styled(style ->
+                                                ).withStyle(style ->
                                                     style.withColor(0x7d92dd)
                                                         .withClickEvent(new ClickEvent(
                                                             ClickEvent.Action.OPEN_URL,
@@ -702,7 +701,7 @@ public class McDiscordChat implements ModInitializer {
                                                         ))
                                                         .withHoverEvent(new HoverEvent(
                                                             HoverEvent.Action.SHOW_TEXT,
-                                                            Text.literal("Open channel in Discord client")
+                                                            Component.literal("Open channel in Discord client")
                                                         ))
                                                 )
                                             );
@@ -741,11 +740,11 @@ public class McDiscordChat implements ModInitializer {
                             current.setLength(0);
                             final User finalUser = user;
                             result.append(
-                                Text.translatable(
+                                Component.translatable(
                                     "chat.mention.discord",
                                     member == null ? user.getName() : member.getEffectiveName(),
                                     "<@" + user.getId() + '>'
-                                ).styled(style -> addUserTooltip(style.withColor(
+                                ).withStyle(style -> addUserTooltip(style.withColor(
                                     member == null || member.getColorRaw() == Role.DEFAULT_COLOR_RAW
                                         ? 0x7d92dd : member.getColorRaw()
                                 ), finalUser, member))
@@ -761,24 +760,24 @@ public class McDiscordChat implements ModInitializer {
                     spaceIndex = text.length();
                 }
                 username = text.substring(i + 1, spaceIndex);
-                ServerPlayerEntity player = currentServer.getPlayerManager().getPlayer(username);
+                ServerPlayer player = currentServer.getPlayerList().getPlayerByName(username);
                 while (player == null && username.length() > 1) {
                     username = username.substring(0, username.length() - 1);
-                    player = currentServer.getPlayerManager().getPlayer(username);
+                    player = currentServer.getPlayerList().getPlayerByName(username);
                 }
                 if (player != null) {
                     result.append(current.toString());
                     current.setLength(0);
-                    final Text displayName = player.getDisplayName();
+                    final Component displayName = player.getDisplayName();
                     Style style = displayName.getStyle();
                     if (style.getColor() == null) {
                         style = style.withColor(0x7d92dd);
                     }
                     result.append(
-                        Text.translatable(
+                        Component.translatable(
                             "chat.mention.minecraft",
                             displayName,
-                            player.getEntityName()
+                            player.getScoreboardName()
                         ).setStyle(style)
                     );
                     i += username.length() + 1;
@@ -797,11 +796,11 @@ public class McDiscordChat implements ModInitializer {
                                 result.append(current.toString());
                                 current.setLength(0);
                                 result.append(
-                                    Text.translatable(
+                                    Component.translatable(
                                         "chat.mention.discord",
                                         role.getName(),
                                         "<@&" + role.getId() + '>'
-                                    ).styled(style -> style.withColor(
+                                    ).withStyle(style -> style.withColor(
                                         role.getColorRaw() == Role.DEFAULT_COLOR_RAW
                                             ? 0x7d92dd : role.getColorRaw()
                                     ))
@@ -824,10 +823,10 @@ public class McDiscordChat implements ModInitializer {
         return style
             .withHoverEvent(new HoverEvent(
                 HoverEvent.Action.SHOW_TEXT,
-                Text.empty()
+                Component.empty()
                     .append(
-                        Text.literal(member != null ? member.getEffectiveName() : user.getName())
-                            .styled(style2 -> {
+                        Component.literal(member != null ? member.getEffectiveName() : user.getName())
+                            .withStyle(style2 -> {
                                 if (member != null) {
                                     final int color = member.getColorRaw();
                                     if (color != Role.DEFAULT_COLOR_RAW) {
@@ -844,27 +843,27 @@ public class McDiscordChat implements ModInitializer {
             .withInsertion('@' + user.getAsTag());
     }
 
-    private static Text statusToText(@Nullable Member member) {
-        if (member == null) return Text.empty();
+    private static Component statusToText(@Nullable Member member) {
+        if (member == null) return Component.empty();
         final OnlineStatus status = member.getOnlineStatus();
         if (status == OnlineStatus.ONLINE || status == OnlineStatus.IDLE || status == OnlineStatus.DO_NOT_DISTURB) {
-            return Text.literal(" \u25cf").styled(style -> style.withColor(switch (member.getOnlineStatus()) {
+            return Component.literal(" \u25cf").withStyle(style -> style.withColor(switch (member.getOnlineStatus()) {
                 case ONLINE -> 0x43b581;
                 case IDLE -> 0xfaa61a;
                 case DO_NOT_DISTURB -> 0xed4245;
                 default -> throw new AssertionError();
             }));
         }
-        return Text.literal(" \u25cc");
+        return Component.literal(" \u25cc");
     }
 
-    private static Text activityToText(@Nullable Member member) {
-        if (member == null) return Text.empty();
+    private static Component activityToText(@Nullable Member member) {
+        if (member == null) return Component.empty();
         final List<Activity> activities = member.getActivities();
-        if (activities.isEmpty()) return Text.empty();
+        if (activities.isEmpty()) return Component.empty();
 
         final Activity activity = activities.get(0);
-        final MutableText result = Text.literal("\n");
+        final MutableComponent result = Component.literal("\n");
         if (activity.getEmoji() != null) {
             result.append(parseEmojis(activity.getEmoji().getFormatted() + ' '));
         }
@@ -877,8 +876,8 @@ public class McDiscordChat implements ModInitializer {
             case COMPETING -> "Competing in ";
         });
         return result.append(
-                Text.literal(activity.getName())
-                    .styled(style -> style.withBold(true))
+                Component.literal(activity.getName())
+                    .withStyle(style -> style.withBold(true))
             );
     }
 
@@ -915,15 +914,15 @@ public class McDiscordChat implements ModInitializer {
             }
             EMOJI_CHARS_REVERSE.put(emojiCP, new AbstractObject2LongMap.BasicEntry<>(emojiName, emojiId));
             if (syncWithClients) {
-                final PacketByteBuf buf = PacketByteBufs.create();
+                final FriendlyByteBuf buf = PacketByteBufs.create();
                 writeEmoji(buf, emojiId, emojiCP);
-                currentServer.getPlayerManager().sendToAll(ServerPlayNetworking.createS2CPacket(EMOJI_SYNC_CHAR, buf));
+                currentServer.getPlayerList().broadcastAll(ServerPlayNetworking.createS2CPacket(EMOJI_SYNC_CHAR, buf));
             }
             return emojiCP;
         });
     }
 
-    private static void writeEmoji(PacketByteBuf buf, long emojiId, int cp) {
+    private static void writeEmoji(FriendlyByteBuf buf, long emojiId, int cp) {
         buf.writeVarLong(emojiId);
         buf.writeShort(cp - PUA_FIRST);
     }
