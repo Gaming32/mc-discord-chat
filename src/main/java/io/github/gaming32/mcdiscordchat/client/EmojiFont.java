@@ -72,6 +72,9 @@ public class EmojiFont implements GlyphProvider {
 
                     @Override
                     public float getOversample() {
+                        if (getImage() == null) {
+                            return 0;
+                        }
                         return Math.max(getImage().getWidth(), image.getHeight()) / 7f;
                     }
 
